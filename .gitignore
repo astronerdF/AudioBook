@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Logs & outputs
+logs/
+out/
+
+# Books (keep folder, ignore contents)
+Books/*
+!Books/.gitkeep
+
+# Model weights
+*.pth
+.cache/

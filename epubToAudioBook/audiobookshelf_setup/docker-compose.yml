@@ -1,0 +1,16 @@
+version: '3.7'
+services:
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    container_name: audiobookshelf
+    ports:
+      - 13378:80
+    volumes:
+      - /lhome/ahmadfn/AudioBook/epub_to_audiobook/out:/audiobooks
+      - /lhome/ahmadfn/AudioBook/epub_to_audiobook/audiobookshelf_setup/config:/config
+      - /lhome/ahmadfn/AudioBook/epub_to_audiobook/audiobookshelf_setup/metadata:/metadata
+    environment:
+      - AUDIOBOOKSHELF_UID=1000
+      - AUDIOBOOKSHELF_GID=1000
+      - TZ=Etc/UTC
+    restart: unless-stopped

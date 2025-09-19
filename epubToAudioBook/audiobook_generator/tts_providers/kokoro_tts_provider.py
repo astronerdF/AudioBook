@@ -158,10 +158,12 @@ class KokoroTTSProvider(BaseTTSProvider):
             device=getattr(self.config, "device", None),
             model_name=getattr(self.config, "kokoro_alignment_model", None),
             compute_type=getattr(self.config, "kokoro_alignment_compute_type", None),
+            backend=getattr(self.config, "kokoro_alignment_backend", "auto"),
+            whisperx_batch_size=getattr(self.config, "kokoro_alignment_batch_size", None),
         )
 
         if alignment and any(entry for entry in alignment if entry):
-            logger.info("Using Whisper forced alignment for timings")
+            logger.info("Using forced alignment backend for timings")
             for idx, aligned in enumerate(alignment):
                 if not aligned:
                     continue
@@ -207,18 +209,28 @@ class KokoroTTSProvider(BaseTTSProvider):
                 continue
 
             leading_silence = max(0.0, record.get("leading_silence", 0.0))
-            effective_duration = max(0.0, record["duration"] - leading_silence)
-            remaining = effective_duration
+            trailing_silence = max(0.0, record.get("trailing_silence", 0.0))
+            speech_duration = max(0.0, record["duration"] - leading_silence - trailing_silence)
+            remaining = speech_duration
             token_start = audio_offset + leading_silence
+            speech_end = audio_offset + record["duration"] - trailing_silence
 
             for idx, token in enumerate(chunk_tokens):
                 if idx == len(chunk_tokens) - 1:
                     token_duration = remaining
                 else:
-                    token_duration = (effective_duration * token["weight"]) / total_weight
-                    remaining = max(0.0, remaining - token_duration)
+                    token_duration = (speech_duration * token["weight"]) / total_weight
 
-                token_end = token_start + token_duration
+                token_end = min(speech_end, token_start + token_duration)
+                token_end = max(token_start, token_end)
+                if idx == len(chunk_tokens) - 1:
+                    token_end = speech_end
+
+                actual_duration = max(0.0, token_end - token_start)
+                if idx != len(chunk_tokens) - 1:
+                    remaining = max(0.0, remaining - actual_duration)
+                else:
+                    remaining = 0.0
                 timings.append(
                     {
                         "token": token["value"],

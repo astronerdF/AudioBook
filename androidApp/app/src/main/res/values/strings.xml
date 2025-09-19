@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">AudioBook</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_library">Library</string>
+    <string name="nav_flow">Flow</string>
+    <string name="nav_profile">Profile</string>
+    <string name="home_continue_listening">Continue Listening</string>
+    <string name="home_recent_releases">Recent Releases</string>
+    <string name="home_see_all">See all</string>
+    <string name="library_empty">Your library is waiting.</string>
+    <string name="flow_title">Daily Flow</string>
+    <string name="profile_greeting">Welcome back</string>
+</resources>

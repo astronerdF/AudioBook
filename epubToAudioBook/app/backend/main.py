@@ -58,6 +58,17 @@ tasks_status: Dict[str, Dict[str, str]] = {}
 logger = logging.getLogger(__name__)
 
 
+def _optional_int_from_env(key: str) -> Optional[int]:
+    value = os.environ.get(key)
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning("Ignoring invalid integer for %s: %s", key, value)
+        return None
+
+
 def _detect_kokoro_resources(device_hint: str) -> Dict[str, Optional[object]]:
     """Return adaptive configuration based on available GPU resources."""
 
@@ -207,6 +218,8 @@ def _run_generation(
         kokoro_devices=resource_cfg["device_pool"],
         kokoro_alignment_model=os.environ.get("KOKORO_ALIGNMENT_MODEL", "medium.en"),
         kokoro_alignment_compute_type=os.environ.get("KOKORO_ALIGNMENT_COMPUTE_TYPE"),
+        kokoro_alignment_backend=os.environ.get("KOKORO_ALIGNMENT_BACKEND", "auto"),
+        kokoro_alignment_batch_size=_optional_int_from_env("KOKORO_ALIGNMENT_BATCH_SIZE"),
     )
 
     config = GeneralConfig(args)

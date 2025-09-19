@@ -28,16 +28,6 @@ class GeneralConfig:
             'kokoro_alignment_compute_type',
             None,
         )
-        self.kokoro_alignment_backend = getattr(
-            args,
-            'kokoro_alignment_backend',
-            'auto',
-        )
-        self.kokoro_alignment_batch_size = getattr(
-            args,
-            'kokoro_alignment_batch_size',
-            None,
-        )
 
         # Book parser specific arguments
         self.title_mode = getattr(args, 'title_mode', None)

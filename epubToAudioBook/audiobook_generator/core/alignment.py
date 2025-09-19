@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import re
 from difflib import SequenceMatcher
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,6 @@ LANGUAGE_MAP = {
 }
 
 MODEL_CACHE: Dict[Tuple[str, int, str, str], WhisperModel] = {}
-WHISPERX_DEFAULT_BATCH = 16
 TOKEN_NORMALIZER = re.compile(r"[^0-9a-z]+", re.IGNORECASE)
 
 
@@ -219,142 +218,29 @@ def _map_words_to_tokens(
     return results
 
 
-def _resolve_backend_sequence(preferred: Optional[str]) -> List[str]:
-    if not preferred or preferred == "auto":
-        return ["whisperx", "faster-whisper"]
-
-    normalized = preferred.replace("_", "-").lower()
-    if normalized in {"whisperx", "whisper-x"}:
-        return ["whisperx"]
-    if normalized in {"faster-whisper", "fasterwhisper", "whisper", "faster"}:
-        return ["faster-whisper"]
-
-    logger.warning("Unknown alignment backend '%s'; defaulting to auto", preferred)
-    return ["whisperx", "faster-whisper"]
-
-
-def _align_with_whisperx(
+def align_tokens_with_audio(
     audio_path: str,
-    tokens: List[Dict[str, object]],
+    tokens: Iterable[Dict[str, object]],
     language: Optional[str],
     *,
-    device: Optional[str],
-    model_name: Optional[str],
-    compute_type: Optional[str],
-    batch_size: Optional[int],
+    device: Optional[str] = None,
+    model_name: Optional[str] = None,
+    compute_type: Optional[str] = None,
 ) -> Optional[List[Optional[Dict[str, float]]]]:
-    try:  # pragma: no cover - optional dependency
-        import torch
-        import whisperx  # type: ignore
-    except ImportError:
-        logger.debug("whisperx not installed; skipping WhisperX alignment")
+    """Align chapter tokens to audio using a Whisper-based aligner.
+
+    Returns a list matching ``tokens`` containing timing dictionaries with
+    ``start``/``end`` in seconds for aligned tokens. Entries may be ``None``
+    when a token could not be aligned. ``None`` is returned when alignment
+    completely fails and the caller should fallback to heuristics.
+    """
+
+    tokens = list(tokens)
+    if not tokens:
         return None
 
-    device_type, device_index = _parse_device(device)
-    if device_type == "auto":
-        device_type = "cuda" if torch.cuda.is_available() else "cpu"
-        device_index = 0 if device_type == "cuda" else -1
-    elif device_type == "cuda" and not torch.cuda.is_available():
-        logger.warning("CUDA requested for WhisperX but no GPU detected; using CPU")
-        device_type = "cpu"
-        device_index = -1
-
-    resolved_compute = _resolve_compute_type(device_type, compute_type)
-    load_kwargs: Dict[str, Any] = {
-        "device": device_type,
-        "compute_type": resolved_compute,
-    }
-    if device_index >= 0:
-        load_kwargs["device_index"] = device_index
-
-    whisper_model = model_name or "large-v2"
-
-    try:  # pragma: no cover - heavy dependency
-        model = whisperx.load_model(whisper_model, **load_kwargs)
-    except Exception as exc:
-        logger.warning("Failed to load WhisperX model '%s': %s", whisper_model, exc)
-        return None
-
-    effective_batch = batch_size if isinstance(batch_size, int) and batch_size > 0 else WHISPERX_DEFAULT_BATCH
-
-    try:
-        result = model.transcribe(
-            audio_path,
-            batch_size=effective_batch,
-        )
-    except Exception as exc:
-        logger.warning("WhisperX transcription failed: %s", exc)
-        return None
-    finally:
-        try:
-            del model
-        except Exception:  # pragma: no cover - defensive cleanup
-            pass
-
-    language_code = result.get("language") or _normalize_language(language) or "en"
-
-    try:
-        align_model, metadata = whisperx.load_align_model(
-            language_code=language_code,
-            device=device_type,
-        )
-    except Exception as exc:
-        logger.warning("Failed to load WhisperX alignment model for '%s': %s", language_code, exc)
-        return None
-
-    try:
-        aligned = whisperx.align(
-            result.get("segments", []),
-            align_model,
-            metadata,
-            audio_path,
-            device=device_type,
-            return_char_alignments=False,
-        )
-    except Exception as exc:
-        logger.warning("WhisperX forced alignment failed: %s", exc)
-        return None
-    finally:
-        # free heavyweight models ASAP
-        try:
-            del align_model
-        except Exception:  # pragma: no cover - defensive cleanup
-            pass
-
-    words: List[Dict[str, float]] = []
-    for segment in aligned.get("segments", []):
-        for word in segment.get("words", []):
-            text = (word.get("word") or "").strip()
-            if not text:
-                continue
-            start = word.get("start")
-            end = word.get("end")
-            if start is None or end is None:
-                continue
-            words.append({
-                "text": text,
-                "start": float(start),
-                "end": float(end),
-            })
-
-    if not words:
-        logger.warning("WhisperX did not return any word-level timestamps")
-        return None
-
-    return _map_words_to_tokens(tokens, words)
-
-
-def _align_with_faster_whisper(
-    audio_path: str,
-    tokens: List[Dict[str, object]],
-    language: Optional[str],
-    *,
-    device: Optional[str],
-    model_name: Optional[str],
-    compute_type: Optional[str],
-) -> Optional[List[Optional[Dict[str, float]]]]:
     if WhisperModel is None:
-        logger.warning("faster-whisper not installed; skipping Faster-Whisper alignment")
+        logger.warning("faster-whisper not installed; falling back to heuristic timings")
         return None
 
     selected_model = model_name or "medium.en"
@@ -386,65 +272,6 @@ def _align_with_faster_whisper(
         return None
 
     return _map_words_to_tokens(tokens, words)
-
-
-def align_tokens_with_audio(
-    audio_path: str,
-    tokens: Iterable[Dict[str, object]],
-    language: Optional[str],
-    *,
-    device: Optional[str] = None,
-    model_name: Optional[str] = None,
-    compute_type: Optional[str] = None,
-    backend: Optional[str] = None,
-    whisperx_batch_size: Optional[int] = None,
-) -> Optional[List[Optional[Dict[str, float]]]]:
-    """Align chapter tokens to audio using the requested alignment backend.
-
-    ``backend`` accepts ``"whisperx"``, ``"faster-whisper"`` or ``"auto``.
-    When ``auto`` (default) the function tries WhisperX first and falls back to
-    the previous Faster-Whisper based alignment if WhisperX is unavailable.
-    """
-
-    token_list = list(tokens)
-    if not token_list:
-        return None
-
-    backend_queue = _resolve_backend_sequence(backend)
-    alignment: Optional[List[Optional[Dict[str, float]]]] = None
-
-    for backend_name in backend_queue:
-        if backend_name == "whisperx":
-            alignment = _align_with_whisperx(
-                audio_path,
-                token_list,
-                language,
-                device=device,
-                model_name=model_name,
-                compute_type=compute_type,
-                batch_size=whisperx_batch_size,
-            )
-        else:
-            alignment = _align_with_faster_whisper(
-                audio_path,
-                token_list,
-                language,
-                device=device,
-                model_name=model_name,
-                compute_type=compute_type,
-            )
-
-        if alignment and any(entry for entry in alignment if entry):
-            logger.info(
-                "Using %s backend for timing alignment",
-                "WhisperX" if backend_name == "whisperx" else "Faster-Whisper",
-            )
-            return alignment
-
-        if backend_name == "whisperx" and backend_queue != ["whisperx"]:
-            logger.info("WhisperX alignment unavailable; falling back to Faster-Whisper")
-
-    return alignment
 
 
 __all__ = ["align_tokens_with_audio"]

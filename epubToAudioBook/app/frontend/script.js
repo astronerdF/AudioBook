@@ -243,55 +243,10 @@ function highlightWord(index) {
         if (rect.top < containerRect.top || rect.bottom > containerRect.bottom) {
             activeSpan.scrollIntoView({ block: "center", behavior: "smooth" });
         }
+        currentWordIndex = index;
     } else {
         activeSpan = null;
     }
-    currentWordIndex = index;
-}
-
-function findWordIndex(timeMs) {
-    if (!wordTimings.length) {
-        return -1;
-    }
-
-    const first = wordTimings[0];
-    if (timeMs < first.start) {
-        return -1;
-    }
-
-    const lastIndex = wordTimings.length - 1;
-    const last = wordTimings[lastIndex];
-    if (timeMs > last.end) {
-        return lastIndex;
-    }
-
-    let low = 0;
-    let high = lastIndex;
-    let candidate = lastIndex;
-
-    while (low <= high) {
-        const mid = Math.floor((low + high) / 2);
-        const word = wordTimings[mid];
-
-        if (timeMs < word.start) {
-            candidate = Math.min(candidate, mid);
-            high = mid - 1;
-        } else if (timeMs > word.end) {
-            low = mid + 1;
-        } else {
-            return mid;
-        }
-    }
-
-    if (candidate === 0) {
-        return 0;
-    }
-
-    const before = wordTimings[candidate - 1];
-    const after = wordTimings[candidate];
-    const distBefore = Math.abs(timeMs - before.end);
-    const distAfter = Math.abs(timeMs - after.start);
-    return distBefore <= distAfter ? candidate - 1 : candidate;
 }
 
 function updateHighlight(timeMs) {
@@ -299,21 +254,37 @@ function updateHighlight(timeMs) {
         return;
     }
 
-    if (timeMs > wordTimings[wordTimings.length - 1].end) {
-        if (currentWordIndex !== -1) {
-            highlightWord(-1);
+    if (currentWordIndex < 0 || currentWordIndex >= wordTimings.length) {
+        currentWordIndex = 0;
+    }
+
+    if (
+        timeMs < wordTimings[currentWordIndex].start
+    ) {
+        currentWordIndex = 0;
+    }
+
+    while (
+        currentWordIndex > 0 &&
+        timeMs < wordTimings[currentWordIndex].start
+    ) {
+        currentWordIndex -= 1;
+    }
+
+    while (
+        currentWordIndex < wordTimings.length - 1 &&
+        timeMs > wordTimings[currentWordIndex].end
+    ) {
+        currentWordIndex += 1;
+    }
+
+    const current = wordTimings[currentWordIndex];
+    if (timeMs >= current.start && timeMs <= current.end) {
+        if (activeSpan !== wordSpans[currentWordIndex]) {
+            highlightWord(currentWordIndex);
         }
-        return;
-    }
-
-    const targetIndex = findWordIndex(timeMs);
-    if (targetIndex === -1) {
+    } else if (timeMs > current.end && currentWordIndex === wordTimings.length - 1) {
         highlightWord(-1);
-        return;
-    }
-
-    if (currentWordIndex !== targetIndex) {
-        highlightWord(targetIndex);
     }
 }
 

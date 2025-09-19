@@ -11,6 +11,23 @@ class GeneralConfig:
         self.worker_count = getattr(args, 'worker_count', None)
         self.use_pydub_merge = getattr(args, 'use_pydub_merge', None)
         self.verbose = getattr(args, 'verbose', None)
+        self.emit_timestamps = getattr(
+            args,
+            'emit_timestamps',
+            True if getattr(args, 'tts', None) == 'kokoro' else False,
+        )
+        self.kokoro_chunk_chars = getattr(args, 'kokoro_chunk_chars', None)
+        self.kokoro_devices = getattr(args, 'kokoro_devices', None)
+        self.kokoro_alignment_model = getattr(
+            args,
+            'kokoro_alignment_model',
+            'medium.en',
+        )
+        self.kokoro_alignment_compute_type = getattr(
+            args,
+            'kokoro_alignment_compute_type',
+            None,
+        )
 
         # Book parser specific arguments
         self.title_mode = getattr(args, 'title_mode', None)
@@ -51,7 +68,8 @@ class GeneralConfig:
         self.piper_sentence_silence = getattr(args, 'piper_sentence_silence', None)
 
         # TTS provider: Kokoro specific arguments
-        self.device = getattr(args, 'device', None)
+        default_device = 'cpu' if getattr(args, 'tts', None) == 'kokoro' else None
+        self.device = getattr(args, 'device', default_device)
 
     def __str__(self):
         return ",\n".join(f"{key}={value}" for key, value in self.__dict__.items())

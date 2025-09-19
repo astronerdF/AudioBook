@@ -1,6 +1,8 @@
+import json
 import logging
 import multiprocessing
 import os
+import time
 from tqdm import tqdm
 
 from audiobook_generator.book_parsers.base_book_parser import get_book_parser
@@ -18,6 +20,13 @@ def init_worker(config, log_level, log_file, is_worker):
     """Initializer for the worker process."""
     global tts_provider
     setup_logging(log_level, log_file, is_worker)
+    if getattr(config, "kokoro_devices", None):
+        identity = multiprocessing.current_process()._identity
+        worker_idx = identity[0] - 1 if identity else 0
+        devices = config.kokoro_devices
+        if devices:
+            assigned = devices[worker_idx % len(devices)]
+            config.device = assigned
     tts_provider = get_tts_provider(config)
 
 
@@ -155,10 +164,26 @@ class AudiobookGenerator:
             failed_chapters = []
 
             # Use multiprocessing to process chapters in parallel
-            with multiprocessing.Pool(
-            processes=self.config.worker_count,
-            initializer=init_worker,
-            initargs=(self.config, self.config.log, self.config.log_file, True)
+            mp_context = multiprocessing
+            if (
+                getattr(self.config, "tts", None) == "kokoro"
+                and isinstance(getattr(self.config, "device", None), str)
+                and self.config.device.startswith("cuda")
+            ):
+                try:
+                    mp_context = multiprocessing.get_context("spawn")
+                    logger.debug(
+                        "Using 'spawn' multiprocessing context for CUDA-enabled Kokoro jobs."
+                    )
+                except ValueError:
+                    logger.warning(
+                        "Failed to switch multiprocessing context to 'spawn'; continuing with default."
+                    )
+
+            with mp_context.Pool(
+                processes=self.config.worker_count,
+                initializer=init_worker,
+                initargs=(self.config, self.config.log, self.config.log_file, True),
             ) as pool:
                 # Process chapters and collect results
                 results = []
@@ -182,6 +207,14 @@ class AudiobookGenerator:
             else:
                 logger.info(f"All chapters converted successfully. Check your output directory: {self.config.output_folder}")
 
+            self._write_manifest(
+                book_title,
+                book_author,
+                main_tts_provider.get_output_file_extension(),
+                chapters_to_process,
+                results,
+            )
+
         except KeyboardInterrupt:
             logger.info("Audiobook generation process interrupted by user (Ctrl+C).")
         except Exception as e:
@@ -189,3 +222,44 @@ class AudiobookGenerator:
         finally:
             logger.debug("AudiobookGenerator.run() method finished.")
 
+    def _write_manifest(
+        self,
+        book_title: str,
+        book_author: str,
+        audio_extension: str,
+        chapters_to_process,
+        results,
+    ) -> None:
+        try:
+            os.makedirs(self.config.output_folder, exist_ok=True)
+            manifest_path = os.path.join(self.config.output_folder, "manifest.json")
+
+            success_map = {idx: success for idx, success in results}
+            chapters_manifest = []
+
+            for offset, (title, _) in enumerate(chapters_to_process, start=self.config.chapter_start):
+                base_name = f"{offset:04d}_{title}"
+                chapters_manifest.append(
+                    {
+                        "index": offset,
+                        "title": title,
+                        "audio": f"{base_name}.{audio_extension}",
+                        "metadata": f"{base_name}.json",
+                        "status": "ready" if success_map.get(offset, False) else "failed",
+                    }
+                )
+
+            payload = {
+                "book_id": os.path.basename(os.path.normpath(self.config.output_folder)),
+                "book_title": book_title,
+                "book_author": book_author,
+                "generated_ms": int(time.time() * 1000),
+                "chapters": chapters_manifest,
+            }
+
+            with open(manifest_path, "w", encoding="utf-8") as manifest_file:
+                json.dump(payload, manifest_file, ensure_ascii=False, indent=2)
+
+            logger.info("Book manifest written to %s", manifest_path)
+        except Exception:
+            logger.exception("Failed to write book manifest")

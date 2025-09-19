@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kokoro Audiobook</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <header>
+        <h1>Kokoro Audiobook</h1>
+    </header>
+
+    <main>
+        <section class="panel upload-panel">
+            <h2>Generate New Audiobook</h2>
+            <form id="upload-form">
+                <label class="field">
+                    <span>EPUB File</span>
+                    <input type="file" id="epub-input" name="file" accept=".epub" required />
+                </label>
+                <label class="field">
+                    <span>Voice</span>
+                    <select id="voice-select" name="voice"></select>
+                </label>
+                <label class="field">
+                    <span>Device</span>
+                    <select id="device-select" name="device">
+                        <option value="cuda" selected>GPU (CUDA)</option>
+                        <option value="cpu">CPU</option>
+                    </select>
+                </label>
+                <div class="field chapter-range">
+                    <span>Chapters</span>
+                    <div class="chapter-range-inputs">
+                        <label>
+                            <span>Start</span>
+                            <input type="number" id="chapter-start" name="chapter_start" min="1" value="1" />
+                        </label>
+                        <label>
+                            <span>End</span>
+                            <input type="number" id="chapter-end" name="chapter_end" min="1" value="1" />
+                        </label>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" id="full-book-checkbox" />
+                        <span>Generate entire book</span>
+                    </label>
+                </div>
+                <button type="submit">Start Conversion</button>
+            </form>
+            <div id="upload-status" class="status"></div>
+        </section>
+
+        <section class="panel library-panel">
+            <h2>Library</h2>
+            <ul id="book-list" class="list"></ul>
+        </section>
+
+        <section class="panel chapter-panel">
+            <h2 id="chapter-heading">Chapter</h2>
+            <div class="controls">
+                <button id="btn-back">&#9664; 10s</button>
+                <button id="btn-play">Play</button>
+                <button id="btn-pause">Pause</button>
+                <button id="btn-forward">10s &#9654;</button>
+                <label class="speed-control">
+                    <span>Speed</span>
+                    <input type="range" id="speed-slider" min="0.5" max="2" step="0.1" value="1" />
+                    <span id="speed-value">1.0x</span>
+                </label>
+            </div>
+            <audio id="chapter-audio" controls></audio>
+            <div id="chapter-text" class="chapter-text"></div>
+        </section>
+    </main>
+
+    <template id="book-item-template">
+        <li class="list-item">
+            <div class="book-meta">
+                <div class="book-text">
+                    <strong data-field="title"></strong>
+                    <span data-field="author"></span>
+                </div>
+                <button type="button" class="delete-book" data-field="delete">Delete</button>
+            </div>
+            <ul class="list chapters" data-field="chapters"></ul>
+        </li>
+    </template>
+
+    <template id="chapter-item-template">
+        <li class="chapter-item" data-chapter-index="">
+            <button type="button"></button>
+        </li>
+    </template>
+
+    <script src="script.js"></script>
+</body>
+</html>

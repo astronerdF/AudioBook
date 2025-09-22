@@ -55,7 +55,7 @@ Generated assets land under the repository root:
 ```
 Books/              # Uploaded EPUBs (one per job)
 logs/               # Per-job log files
-out/<book-id>/      # Audio, JSON metadata, manifest.json
+out/<book-id>/      # Audio, JSON metadata, manifest.json, packaged assets
 ```
 
 Each chapter produces:
@@ -64,6 +64,8 @@ Each chapter produces:
 - `<chapter>.json` – metadata containing chapter text and `words` with
   `start_ms`/`end_ms` values.
 - `manifest.json` – book-level summary consumed by the frontend.
+- `<book>.m4b` – gapless AAC audiobook with chapters, ready for Audiobookshelf.
+- `<book>.epub` – a copy of the uploaded source file alongside the audio.
 
 ## Configuration
 
@@ -71,11 +73,28 @@ Environment variables allow finer control:
 
 | Variable | Purpose |
 | --- | --- |
-| `KOKORO_ALIGNMENT_MODEL` | Override the Whisper model used for forced alignment (default `medium.en`). |
-| `KOKORO_ALIGNMENT_COMPUTE_TYPE` | Force `faster-whisper` compute precision (e.g. `float16`). |
 | `KOKORO_DEVICE` | Hint for synthesis when auto-detection is undesirable. |
+| `ALIGNMENT_BACKEND` | Default forced-alignment backend for new jobs (`whisperx`, `nemo`, or `torchaudio`). |
+| `ALIGNMENT_DEVICE` | Device override for the aligner (falls back to the synthesis device). |
+| `ALIGNMENT_MODEL` | Backend-specific model slug (e.g. WhisperX checkpoint). |
+| `ALIGNMENT_BATCH_SIZE` | Batch size hint for alignment inference when supported. |
 
 If no CUDA device is present the generator falls back to CPU automatically.
+
+### Alignment Backends
+
+Timestamp generation now supports multiple forced-alignment engines. Pick the
+backend from the **Alignment** selector on the web upload form or via
+`--alignment-backend` on the CLI.
+
+| Backend | Notes |
+| --- | --- |
+| `whisperx` (default) | Fast GPU alignment with WhisperX. Install `whisperx` and a matching `torch` build. |
+| `nemo` | NVIDIA NeMo Forced Aligner. Requires `nemo_toolkit[asr]` and currently assumes CUDA. The hook is wired, but the detailed integration still needs extending in this repository. |
+| `torchaudio` | Uses the official PyTorch forced alignment APIs. Requires `torchaudio` + `torch`. Support is scaffolded and will fall back to heuristic timings until the backend is fully integrated. |
+
+When an aligner or its dependencies are unavailable, the generator reverts to
+heuristic timing estimation so jobs still complete.
 
 ## Command-Line Interface
 

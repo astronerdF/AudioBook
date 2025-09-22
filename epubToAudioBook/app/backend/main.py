@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from audiobook_generator.config.general_config import GeneralConfig
 from audiobook_generator.core.audiobook_generator import AudiobookGenerator
 from audiobook_generator.utils.log_handler import generate_unique_log_path
+from audiobook_generator.utils.m4b_builder import M4BPackagingError, package_m4b
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(BASE_DIR / "tts"))
@@ -38,6 +39,12 @@ AVAILABLE_VOICES: List[str] = [
     "bf_emma",
     "bm_fable",
 ]
+AVAILABLE_ALIGNERS: List[str] = [
+    "whisperx",
+    "nemo",
+    "torchaudio",
+]
+DEFAULT_ALIGNER = AVAILABLE_ALIGNERS[0]
 
 BOOKS_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -56,6 +63,17 @@ api_router = APIRouter(prefix="/api")
 
 tasks_status: Dict[str, Dict[str, str]] = {}
 logger = logging.getLogger(__name__)
+
+
+def _optional_int_from_env(key: str) -> Optional[int]:
+    value = os.environ.get(key)
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning("Invalid integer for %s: %s", key, value)
+        return None
 
 
 def _detect_kokoro_resources(device_hint: str) -> Dict[str, Optional[object]]:
@@ -170,10 +188,12 @@ def _run_generation(
     job_id: str,
     book_id: str,
     epub_path: Path,
+    original_filename: str,
     voice: str,
     device: str,
     chapter_start: int,
     chapter_end: int,
+    alignment_backend: str,
 ) -> None:
     tasks_status[job_id] = {"status": "processing", "book_id": book_id}
 
@@ -182,6 +202,15 @@ def _run_generation(
 
     resource_cfg = _detect_kokoro_resources(device)
     effective_device = resource_cfg["primary_device"]
+
+    requested_backend = (alignment_backend or os.environ.get("ALIGNMENT_BACKEND", DEFAULT_ALIGNER)).lower()
+    if requested_backend not in AVAILABLE_ALIGNERS:
+        logger.warning("Unsupported alignment backend '%s'; using %s", requested_backend, DEFAULT_ALIGNER)
+        requested_backend = DEFAULT_ALIGNER
+
+    alignment_device = os.environ.get("ALIGNMENT_DEVICE", effective_device)
+    alignment_model = os.environ.get("ALIGNMENT_MODEL")
+    alignment_batch_size = _optional_int_from_env("ALIGNMENT_BATCH_SIZE")
 
     args = SimpleNamespace(
         input_file=str(epub_path),
@@ -205,8 +234,10 @@ def _run_generation(
         device=effective_device,
         kokoro_chunk_chars=resource_cfg["chunk_chars"],
         kokoro_devices=resource_cfg["device_pool"],
-        kokoro_alignment_model=os.environ.get("KOKORO_ALIGNMENT_MODEL", "medium.en"),
-        kokoro_alignment_compute_type=os.environ.get("KOKORO_ALIGNMENT_COMPUTE_TYPE"),
+        alignment_backend=requested_backend,
+        alignment_device=alignment_device,
+        alignment_model=alignment_model,
+        alignment_batch_size=alignment_batch_size,
     )
 
     config = GeneralConfig(args)
@@ -214,6 +245,58 @@ def _run_generation(
 
     try:
         AudiobookGenerator(config).run()
+
+        manifest = None
+        try:
+            manifest = _load_manifest(book_id)
+        except HTTPException as exc:
+            logger.warning("Manifest missing after generation for %s: %s", book_id, exc)
+
+        packaged_name = None
+        if manifest:
+            audio_metadata = [
+                (chapter.get("index"), chapter.get("audio"))
+                for chapter in manifest.get("chapters", [])
+                if chapter.get("status") == "ready"
+            ]
+            audio_metadata = [(idx, name) for idx, name in audio_metadata if idx is not None and name]
+            if audio_metadata:
+                try:
+                    package_path = package_m4b(
+                        output_folder,
+                        book_id=book_id,
+                        book_title=manifest.get("book_title") or book_id,
+                        book_author=manifest.get("book_author") or "",
+                        audio_files=audio_metadata,
+                    )
+                    if package_path:
+                        packaged_name = package_path.name
+                except M4BPackagingError as exc:
+                    logger.warning("Failed to package m4b for %s: %s", book_id, exc)
+
+        epub_dest_name = None
+        try:
+            safe_name = _slugify(Path(original_filename).stem) + ".epub"
+            epub_dest = output_folder / safe_name
+            shutil.copy2(epub_path, epub_dest)
+            epub_dest_name = epub_dest.name
+        except Exception as exc:
+            logger.warning("Failed to copy EPUB into output folder for %s: %s", book_id, exc)
+
+        if manifest and (packaged_name or epub_dest_name):
+            manifest_assets = manifest.get("assets") or {}
+            if packaged_name:
+                manifest_assets["m4b"] = packaged_name
+            if epub_dest_name:
+                manifest_assets["epub"] = epub_dest_name
+            manifest["assets"] = manifest_assets
+            manifest_path = output_folder / "manifest.json"
+            try:
+                with manifest_path.open("w", encoding="utf-8") as manifest_file:
+                    json.dump(manifest, manifest_file, ensure_ascii=False, indent=2)
+            except Exception as exc:
+                logger.warning("Failed to update manifest assets for %s: %s", book_id, exc)
+
         tasks_status[job_id] = {"status": "completed", "book_id": book_id}
     except Exception as exc:  # pragma: no cover - defensive logging
         tasks_status[job_id] = {
@@ -227,6 +310,11 @@ def _run_generation(
 @api_router.get("/voices/kokoro")
 def list_voices() -> Dict[str, List[str]]:
     return {"voices": AVAILABLE_VOICES}
+
+
+@api_router.get("/aligners")
+def list_aligners() -> Dict[str, List[str]]:
+    return {"aligners": AVAILABLE_ALIGNERS}
 
 
 @api_router.get("/books")
@@ -277,6 +365,24 @@ def get_chapter_audio(book_id: str, chapter_index: int) -> FileResponse:
     return FileResponse(audio_path, media_type="audio/wav", filename=audio_path.name)
 
 
+@api_router.get("/books/{book_id}/assets/{asset_name}")
+def get_book_asset(book_id: str, asset_name: str) -> FileResponse:
+    folder = _resolve_book_folder(book_id)
+    safe_name = Path(asset_name).name
+    asset_path = folder / safe_name
+    if not asset_path.exists() or not asset_path.is_file():
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    suffix = asset_path.suffix.lower()
+    media_type = "application/octet-stream"
+    if suffix == ".m4b":
+        media_type = "audio/mp4"
+    elif suffix == ".epub":
+        media_type = "application/epub+zip"
+
+    return FileResponse(asset_path, media_type=media_type, filename=asset_path.name)
+
+
 @api_router.get("/tasks/{task_id}")
 def get_task_status(task_id: str) -> Dict[str, str]:
     status = tasks_status.get(task_id)
@@ -293,6 +399,7 @@ async def create_audiobook(
     device: str = Form("cuda"),
     chapter_start: int = Form(1),
     chapter_end: int = Form(1),
+    alignment_backend: str = Form(DEFAULT_ALIGNER),
 ) -> Dict[str, str]:
     if voice not in AVAILABLE_VOICES:
         raise HTTPException(status_code=400, detail="Unsupported voice selection")
@@ -305,9 +412,14 @@ async def create_audiobook(
     if chapter_end not in (-1,) and chapter_end < chapter_start:
         raise HTTPException(status_code=400, detail="chapter_end must be >= chapter_start or -1")
 
+    selected_backend = (alignment_backend or DEFAULT_ALIGNER).lower()
+    if selected_backend not in AVAILABLE_ALIGNERS:
+        raise HTTPException(status_code=400, detail="Unsupported alignment backend")
+
     base_slug = _slugify(Path(file.filename).stem)
     book_id = _ensure_unique_book_id(base_slug)
 
+    original_filename = Path(file.filename).name
     epub_path = BOOKS_DIR / f"{book_id}.epub"
     with epub_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -321,10 +433,12 @@ async def create_audiobook(
         job_id,
         book_id,
         epub_path,
+        original_filename,
         voice,
         device,
         chapter_start,
         chapter_end,
+        selected_backend,
     )
 
     return {"job_id": job_id, "book_id": book_id}

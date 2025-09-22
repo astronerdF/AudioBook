@@ -1,18 +1,14 @@
-"""Utilities for aligning chapter text to audio using Whisper."""
+"""Utilities for aligning chapter text to audio using selectable backends."""
 from __future__ import annotations
 
 import logging
 import re
 from difflib import SequenceMatcher
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
 
-try:  # pragma: no cover - optional dependency
-    from faster_whisper import WhisperModel  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    WhisperModel = None  # type: ignore
-
+SUPPORTED_ALIGNERS = {"whisperx", "nemo", "torchaudio"}
 
 LANGUAGE_MAP = {
     "en": "en",
@@ -22,7 +18,6 @@ LANGUAGE_MAP = {
     "en-gb": "en",
 }
 
-MODEL_CACHE: Dict[Tuple[str, int, str, str], WhisperModel] = {}
 TOKEN_NORMALIZER = re.compile(r"[^0-9a-z]+", re.IGNORECASE)
 
 
@@ -39,100 +34,21 @@ def _normalize_token(token: str) -> str:
     return TOKEN_NORMALIZER.sub("", token.lower())
 
 
-def _parse_device(device: Optional[str]) -> Tuple[str, int]:
-    if not device or device == "auto":
-        return "auto", -1
-    if device.startswith("cuda"):
-        if ":" in device:
-            try:
-                index = int(device.split(":", 1)[1])
-            except ValueError:
-                index = 0
-        else:
-            index = 0
-        return "cuda", index
-    return device, -1
+def _resolve_device_hint(device_hint: Optional[str]) -> str:
+    if device_hint:
+        return device_hint
+    try:  # pragma: no cover - torch is optional at runtime
+        import torch
 
-
-def _resolve_compute_type(device: str, requested: Optional[str]) -> str:
-    if requested:
-        return requested
-    if device == "cuda":
-        return "float16"
-    return "int8_float16"
-
-
-def _load_whisper_model(
-    device: Optional[str],
-    model_name: str,
-    compute_type: Optional[str],
-) -> WhisperModel:
-    if WhisperModel is None:
-        raise ImportError("faster-whisper is not installed")
-
-    device_type, device_index = _parse_device(device)
-    resolved_compute = _resolve_compute_type(device_type, compute_type)
-    cache_key = (device_type, device_index, model_name, resolved_compute)
-
-    model = MODEL_CACHE.get(cache_key)
-    if model is not None:
-        return model
-
-    kwargs = {
-        "device": device_type,
-        "compute_type": resolved_compute,
-    }
-    if device_index >= 0:
-        kwargs["device_index"] = device_index
-
-    logger.info(
-        "Loading Whisper model '%s' for alignment (device=%s, index=%s, compute_type=%s)",
-        model_name,
-        device_type,
-        "auto" if device_index < 0 else device_index,
-        resolved_compute,
-    )
-
-    model = WhisperModel(model_name, **kwargs)  # type: ignore[arg-type]
-    MODEL_CACHE[cache_key] = model
-    return model
-
-
-def _flatten_words(segments) -> List[Dict[str, float]]:
-    words: List[Dict[str, float]] = []
-    for segment in segments:
-        segment_start = float(getattr(segment, "start", 0.0) or 0.0)
-        segment_end = float(getattr(segment, "end", segment_start) or segment_start)
-        segment_words = getattr(segment, "words", None)
-        if segment_words:
-            for word in segment_words:
-                raw = getattr(word, "word", "") or ""
-                text = raw.strip()
-                if not text:
-                    continue
-                start = getattr(word, "start", None)
-                end = getattr(word, "end", None)
-                word_start = float(start if start is not None else segment_start)
-                word_end = float(end if end is not None else segment_end)
-                words.append({
-                    "text": text,
-                    "start": max(0.0, word_start),
-                    "end": max(word_start, word_end),
-                })
-        else:
-            text = (getattr(segment, "text", "") or "").strip()
-            if not text:
-                continue
-            words.append({
-                "text": text,
-                "start": segment_start,
-                "end": segment_end,
-            })
-    return words
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:  # pragma: no cover - optional dependency
+        pass
+    return "cpu"
 
 
 def _assign_span(
-    token_entries: List[Tuple[int, str]],
+    token_entries: List[tuple[int, str]],
     word_entries: List[Dict[str, float]],
     assignments: Dict[int, Dict[str, float]],
 ) -> None:
@@ -164,7 +80,7 @@ def _map_words_to_tokens(
     tokens: List[Dict[str, object]],
     words: List[Dict[str, float]],
 ) -> List[Optional[Dict[str, float]]]:
-    token_word_entries: List[Tuple[int, str]] = []
+    token_word_entries: List[tuple[int, str]] = []
     for idx, token in enumerate(tokens):
         value = str(token.get("value", ""))
         if re.search(r"\w", value):
@@ -172,7 +88,7 @@ def _map_words_to_tokens(
             if normalized:
                 token_word_entries.append((idx, normalized))
 
-    whisper_entries: List[Tuple[str, Dict[str, float]]] = []
+    whisper_entries: List[tuple[str, Dict[str, float]]] = []
     for word in words:
         normalized = _normalize_token(word["text"])
         if normalized:
@@ -218,60 +134,146 @@ def _map_words_to_tokens(
     return results
 
 
-def align_tokens_with_audio(
+def _align_with_whisperx(
     audio_path: str,
-    tokens: Iterable[Dict[str, object]],
+    tokens: List[Dict[str, object]],
     language: Optional[str],
-    *,
-    device: Optional[str] = None,
-    model_name: Optional[str] = None,
-    compute_type: Optional[str] = None,
+    device: Optional[str],
+    model_name: Optional[str],
+    batch_size: Optional[int],
 ) -> Optional[List[Optional[Dict[str, float]]]]:
-    """Align chapter tokens to audio using a Whisper-based aligner.
-
-    Returns a list matching ``tokens`` containing timing dictionaries with
-    ``start``/``end`` in seconds for aligned tokens. Entries may be ``None``
-    when a token could not be aligned. ``None`` is returned when alignment
-    completely fails and the caller should fallback to heuristics.
-    """
-
-    tokens = list(tokens)
-    if not tokens:
+    try:  # pragma: no cover - optional dependency
+        import whisperx
+    except ImportError:  # pragma: no cover - optional dependency
+        logger.warning("WhisperX is not installed; unable to run alignment.")
         return None
 
-    if WhisperModel is None:
-        logger.warning("faster-whisper not installed; falling back to heuristic timings")
-        return None
-
-    selected_model = model_name or "medium.en"
+    resolved_device = _resolve_device_hint(device)
+    model_id = model_name or "large-v2"
+    language_hint = _normalize_language(language)
 
     try:
-        model = _load_whisper_model(device, selected_model, compute_type)
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Failed to load Whisper model '%s': %s", selected_model, exc)
-        return None
-
-    whisper_language = _normalize_language(language)
-
-    try:
-        segments, _info = model.transcribe(  # type: ignore[attr-defined]
+        asr_model = whisperx.load_model(model_id, device=resolved_device)
+        result = asr_model.transcribe(
             audio_path,
-            language=whisper_language,
-            beam_size=5,
-            word_timestamps=True,
-            vad_filter=True,
+            batch_size=batch_size or 16,
+            language=language_hint,
         )
-        segment_list = list(segments)
+        detected_language = result.get("language") or language_hint or "en"
+        align_model, metadata = whisperx.load_align_model(
+            language=detected_language,
+            device=resolved_device,
+        )
+        aligned = whisperx.align(
+            result["segments"],
+            align_model,
+            metadata,
+            audio_path,
+            device=resolved_device,
+            return_char_alignments=False,
+        )
     except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning("Whisper transcription failed: %s", exc)
+        logger.warning("WhisperX alignment failed: %s", exc)
         return None
 
-    words = _flatten_words(segment_list)
+    words: List[Dict[str, float]] = []
+    for segment in aligned.get("segments", []):
+        for word in segment.get("words", []):
+            text = (word.get("word") or "").strip()
+            if not text:
+                continue
+            start = word.get("start")
+            end = word.get("end")
+            if start is None or end is None:
+                continue
+            words.append({
+                "text": text,
+                "start": float(start),
+                "end": float(end),
+            })
+
     if not words:
-        logger.warning("Whisper did not return any word-level timestamps")
+        logger.warning("WhisperX returned no word-level timestamps.")
         return None
 
     return _map_words_to_tokens(tokens, words)
 
 
-__all__ = ["align_tokens_with_audio"]
+def _align_with_nemo(
+    audio_path: str,
+    tokens: List[Dict[str, object]],
+    language: Optional[str],
+    device: Optional[str],
+    model_name: Optional[str],
+) -> Optional[List[Optional[Dict[str, float]]]]:
+    try:  # pragma: no cover - optional dependency
+        import nemo.collections.asr as nemo_asr
+    except ImportError:  # pragma: no cover - optional dependency
+        logger.warning("NVIDIA NeMo is not installed; unable to run forced alignment.")
+        return None
+
+    logger.warning(
+        "NVIDIA NeMo forced alignment backend is not yet implemented in this build."
+        " Please integrate nemo.collections.asr.models.NemoForcedAligner and rerun."
+    )
+    return None
+
+
+def _align_with_torchaudio(
+    audio_path: str,
+    tokens: List[Dict[str, object]],
+    language: Optional[str],
+    device: Optional[str],
+    model_name: Optional[str],
+) -> Optional[List[Optional[Dict[str, float]]]]:
+    try:  # pragma: no cover - optional dependency
+        import torchaudio  # noqa: F401
+    except ImportError:  # pragma: no cover - optional dependency
+        logger.warning("torchaudio is not installed; unable to run forced alignment.")
+        return None
+
+    logger.warning(
+        "torchaudio CTC forced alignment backend is not yet implemented in this build."
+        " Please integrate torchaudio.functional.forced_align and rerun."
+    )
+    return None
+
+
+def align_tokens_with_audio(
+    audio_path: str,
+    tokens: Iterable[Dict[str, object]],
+    language: Optional[str],
+    *,
+    backend: Optional[str] = None,
+    device: Optional[str] = None,
+    model_name: Optional[str] = None,
+    batch_size: Optional[int] = None,
+) -> Optional[List[Optional[Dict[str, float]]]]:
+    """Align chapter tokens to audio using the requested backend.
+
+    Returns a list matching ``tokens`` containing dictionaries with ``start``/``end``
+    (seconds). ``None`` is returned when alignment fails for every token.
+    """
+
+    token_list = list(tokens)
+    if not token_list:
+        return None
+
+    backend_key = (backend or "whisperx").lower()
+    if backend_key not in SUPPORTED_ALIGNERS:
+        logger.warning("Unsupported alignment backend '%s'", backend_key)
+        return None
+
+    if backend_key == "whisperx":
+        return _align_with_whisperx(audio_path, token_list, language, device, model_name, batch_size)
+
+    if backend_key == "nemo":
+        return _align_with_nemo(audio_path, token_list, language, device, model_name)
+
+    if backend_key == "torchaudio":
+        return _align_with_torchaudio(audio_path, token_list, language, device, model_name)
+
+    return None
+
+
+__all__ = ["align_tokens_with_audio", "SUPPORTED_ALIGNERS"]

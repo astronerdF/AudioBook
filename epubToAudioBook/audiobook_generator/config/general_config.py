@@ -1,3 +1,6 @@
+DEFAULT_ALIGNMENT_BACKEND = "whisperx"
+
+
 class GeneralConfig:
     def __init__(self, args):
         # General arguments
@@ -18,16 +21,18 @@ class GeneralConfig:
         )
         self.kokoro_chunk_chars = getattr(args, 'kokoro_chunk_chars', None)
         self.kokoro_devices = getattr(args, 'kokoro_devices', None)
-        self.kokoro_alignment_model = getattr(
+        self.alignment_backend = getattr(
             args,
-            'kokoro_alignment_model',
-            'medium.en',
+            'alignment_backend',
+            DEFAULT_ALIGNMENT_BACKEND,
         )
-        self.kokoro_alignment_compute_type = getattr(
+        self.alignment_device = getattr(
             args,
-            'kokoro_alignment_compute_type',
-            None,
+            'alignment_device',
+            getattr(args, 'device', None),
         )
+        self.alignment_model = getattr(args, 'alignment_model', None)
+        self.alignment_batch_size = getattr(args, 'alignment_batch_size', None)
 
         # Book parser specific arguments
         self.title_mode = getattr(args, 'title_mode', None)

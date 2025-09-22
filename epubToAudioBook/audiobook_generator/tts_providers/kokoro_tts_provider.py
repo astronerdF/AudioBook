@@ -155,13 +155,17 @@ class KokoroTTSProvider(BaseTTSProvider):
             audio_path,
             tokens,
             getattr(self.config, "language", "en"),
-            device=getattr(self.config, "device", None),
-            model_name=getattr(self.config, "kokoro_alignment_model", None),
-            compute_type=getattr(self.config, "kokoro_alignment_compute_type", None),
+            backend=getattr(self.config, "alignment_backend", "whisperx"),
+            device=getattr(self.config, "alignment_device", getattr(self.config, "device", None)),
+            model_name=getattr(self.config, "alignment_model", None),
+            batch_size=getattr(self.config, "alignment_batch_size", None),
         )
 
         if alignment and any(entry for entry in alignment if entry):
-            logger.info("Using Whisper forced alignment for timings")
+            logger.info(
+                "Using %s forced alignment for timings",
+                getattr(self.config, "alignment_backend", "whisperx"),
+            )
             for idx, aligned in enumerate(alignment):
                 if not aligned:
                     continue
@@ -178,7 +182,10 @@ class KokoroTTSProvider(BaseTTSProvider):
 
             return timings
 
-        logger.info("Whisper alignment unavailable; using heuristic timings")
+        logger.info(
+            "%s alignment unavailable; using heuristic timings",
+            getattr(self.config, "alignment_backend", "whisperx"),
+        )
         return timings
 
     def _build_word_timings_estimate(

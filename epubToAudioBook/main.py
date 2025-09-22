@@ -69,6 +69,25 @@ def handle_args():
         help="Chapter end index (default: -1, meaning to the last chapter)",
     )
     parser.add_argument(
+        "--alignment_backend",
+        choices=["whisperx", "nemo", "torchaudio"],
+        default="whisperx",
+        help="Forced alignment backend to use for timestamp generation (default: whisperx).",
+    )
+    parser.add_argument(
+        "--alignment_device",
+        help="Device override for the alignment backend (e.g. cuda, cuda:1, cpu).",
+    )
+    parser.add_argument(
+        "--alignment_model",
+        help="Model identifier to use with the selected alignment backend (when applicable).",
+    )
+    parser.add_argument(
+        "--alignment_batch_size",
+        type=int,
+        help="Batch size for alignment inference (only used by backends that support batching).",
+    )
+    parser.add_argument(
         "--output_text",
         action="store_true",
         help="Enable Output Text. This will export a plain text file for each chapter specified and write the files to the output folder specified.",

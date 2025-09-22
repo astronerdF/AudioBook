@@ -9,69 +9,159 @@
 <body>
     <header>
         <h1>Kokoro Audiobook</h1>
+        <nav class="main-nav">
+            <button type="button" class="nav-button active" data-view-target="home">Home</button>
+            <button type="button" class="nav-button" data-view-target="library">Library</button>
+            <button type="button" class="nav-button" data-view-target="flow">Flow</button>
+            <button type="button" class="nav-button" data-view-target="profile">Profile</button>
+        </nav>
     </header>
 
     <main>
-        <section class="panel upload-panel">
-            <h2>Generate New Audiobook</h2>
-            <form id="upload-form">
-                <label class="field">
-                    <span>EPUB File</span>
-                    <input type="file" id="epub-input" name="file" accept=".epub" required />
-                </label>
-                <label class="field">
-                    <span>Voice</span>
-                    <select id="voice-select" name="voice"></select>
-                </label>
-                <label class="field">
-                    <span>Device</span>
-                    <select id="device-select" name="device">
-                        <option value="cuda" selected>GPU (CUDA)</option>
-                        <option value="cpu">CPU</option>
-                    </select>
-                </label>
-                <div class="field chapter-range">
-                    <span>Chapters</span>
-                    <div class="chapter-range-inputs">
-                        <label>
-                            <span>Start</span>
-                            <input type="number" id="chapter-start" name="chapter_start" min="1" value="1" />
+        <section class="view active" data-view="home">
+            <div class="home-grid">
+                <section class="panel upload-panel">
+                    <h2>Generate New Audiobook</h2>
+                    <form id="upload-form">
+                        <label class="field">
+                            <span>EPUB File</span>
+                            <input type="file" id="epub-input" name="file" accept=".epub" required />
                         </label>
-                        <label>
-                            <span>End</span>
-                            <input type="number" id="chapter-end" name="chapter_end" min="1" value="1" />
+                        <label class="field">
+                            <span>Voice</span>
+                            <select id="voice-select" name="voice"></select>
+                        </label>
+                        <label class="field">
+                            <span>Device</span>
+                            <select id="device-select" name="device">
+                                <option value="cuda" selected>GPU (CUDA)</option>
+                                <option value="cpu">CPU</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>Alignment</span>
+                            <select id="aligner-select" name="alignment_backend">
+                                <option value="whisperx" selected>WhisperX</option>
+                                <option value="nemo">NVIDIA NeMo Forced Aligner</option>
+                                <option value="torchaudio">torchaudio CTC Forced Aligner</option>
+                            </select>
+                        </label>
+                        <div class="field chapter-range">
+                            <span>Chapters</span>
+                            <div class="chapter-range-inputs">
+                                <label>
+                                    <span>Start</span>
+                                    <input type="number" id="chapter-start" name="chapter_start" min="1" value="1" />
+                                </label>
+                                <label>
+                                    <span>End</span>
+                                    <input type="number" id="chapter-end" name="chapter_end" min="1" value="1" />
+                                </label>
+                            </div>
+                            <label class="toggle">
+                                <input type="checkbox" id="full-book-checkbox" />
+                                <span>Generate entire book</span>
+                            </label>
+                        </div>
+                        <button type="submit">Start Conversion</button>
+                    </form>
+                    <div id="upload-status" class="status"></div>
+                </section>
+
+                <section class="panel home-overview">
+                    <div class="home-header">
+                        <span class="home-subtitle" id="home-greeting">Good evening</span>
+                        <h2>Find your next escape</h2>
+                    </div>
+                    <section class="home-section">
+                        <div class="section-title">
+                            <h3>Continue Listening</h3>
+                            <button type="button" class="link-button" id="home-see-all">See all</button>
+                        </div>
+                        <div id="continue-list" class="continue-row"></div>
+                    </section>
+                    <section class="home-highlight" id="home-highlight">
+                        <div class="highlight-content">
+                            <h3>Immersive narratives</h3>
+                            <p>Flow through curated collections tailored to your mood.</p>
+                            <button type="button" class="outline-button" data-view-target="flow">Start Flow</button>
+                        </div>
+                    </section>
+                    <section class="home-section">
+                        <div class="section-title">
+                            <h3>Featured Shelf</h3>
+                            <button type="button" class="link-button" data-view-target="library">Browse library</button>
+                        </div>
+                        <div id="featured-list" class="featured-grid"></div>
+                    </section>
+                </section>
+            </div>
+        </section>
+
+        <section class="view" data-view="library">
+            <div class="library-layout">
+                <section class="panel library-panel">
+                    <div class="section-title">
+                        <h2>Library</h2>
+                        <button type="button" class="link-button" id="refresh-library">Refresh</button>
+                    </div>
+                    <ul id="book-list" class="list"></ul>
+                </section>
+
+                <section class="panel chapter-panel">
+                    <h2 id="chapter-heading">Chapter</h2>
+                    <div class="controls">
+                        <button id="btn-back">&#9664; 10s</button>
+                        <button id="btn-play">Play</button>
+                        <button id="btn-pause">Pause</button>
+                        <button id="btn-forward">10s &#9654;</button>
+                        <label class="speed-control">
+                            <span>Speed</span>
+                            <input type="range" id="speed-slider" min="0.5" max="2" step="0.1" value="1" />
+                            <span id="speed-value">1.0x</span>
                         </label>
                     </div>
-                    <label class="toggle">
-                        <input type="checkbox" id="full-book-checkbox" />
-                        <span>Generate entire book</span>
-                    </label>
-                </div>
-                <button type="submit">Start Conversion</button>
-            </form>
-            <div id="upload-status" class="status"></div>
-        </section>
-
-        <section class="panel library-panel">
-            <h2>Library</h2>
-            <ul id="book-list" class="list"></ul>
-        </section>
-
-        <section class="panel chapter-panel">
-            <h2 id="chapter-heading">Chapter</h2>
-            <div class="controls">
-                <button id="btn-back">&#9664; 10s</button>
-                <button id="btn-play">Play</button>
-                <button id="btn-pause">Pause</button>
-                <button id="btn-forward">10s &#9654;</button>
-                <label class="speed-control">
-                    <span>Speed</span>
-                    <input type="range" id="speed-slider" min="0.5" max="2" step="0.1" value="1" />
-                    <span id="speed-value">1.0x</span>
-                </label>
+                    <audio id="chapter-audio" controls></audio>
+                    <div id="chapter-text" class="chapter-text"></div>
+                </section>
             </div>
-            <audio id="chapter-audio" controls></audio>
-            <div id="chapter-text" class="chapter-text"></div>
+        </section>
+
+        <section class="view" data-view="flow">
+            <section class="panel flow-panel">
+                <h2>Daily Flow</h2>
+                <p>Set a vibe and we will string chapters together into a continuous mix.</p>
+                <div class="flow-aura">
+                    <span>Chill</span>
+                </div>
+                <button type="button" class="outline-button">Start Flow</button>
+            </section>
+        </section>
+
+        <section class="view" data-view="profile">
+            <section class="panel profile-panel">
+                <div class="profile-header">
+                    <div class="avatar"></div>
+                    <div class="profile-text">
+                        <h2>Hey there, Ade!</h2>
+                        <p>19 hours listened this week</p>
+                    </div>
+                </div>
+                <div class="profile-stats">
+                    <div class="profile-row">
+                        <span class="label">Listening stats</span>
+                        <span class="value">Top 5% of listeners</span>
+                    </div>
+                    <div class="profile-row">
+                        <span class="label">Preferred vibe</span>
+                        <span class="value">Atmospheric, Calm</span>
+                    </div>
+                    <div class="profile-row">
+                        <span class="label">Downloads</span>
+                        <span class="value">12 titles on device</span>
+                    </div>
+                </div>
+            </section>
         </section>
     </main>
 
@@ -84,6 +174,7 @@
                 </div>
                 <button type="button" class="delete-book" data-field="delete">Delete</button>
             </div>
+            <div class="book-assets" data-field="assets"></div>
             <ul class="list chapters" data-field="chapters"></ul>
         </li>
     </template>
@@ -92,6 +183,26 @@
         <li class="chapter-item" data-chapter-index="">
             <button type="button"></button>
         </li>
+    </template>
+
+    <template id="continue-card-template">
+        <article class="continue-card">
+            <div class="continue-meta">
+                <strong data-field="title"></strong>
+                <span data-field="author"></span>
+            </div>
+            <div class="continue-footer">
+                <span class="progress" data-field="progress"></span>
+                <span class="duration" data-field="duration"></span>
+            </div>
+        </article>
+    </template>
+
+    <template id="featured-card-template">
+        <article class="featured-card">
+            <strong data-field="title"></strong>
+            <span data-field="author"></span>
+        </article>
     </template>
 
     <script src="script.js"></script>

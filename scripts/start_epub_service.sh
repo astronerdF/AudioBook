@@ -4,8 +4,11 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$REPO_ROOT/epubToAudioBook"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_DIR="$REPO_ROOT/apps/epubToAudioBook"
+DATA_DIR="${DATA_DIR:-$REPO_ROOT/data}"
+
+mkdir -p "$DATA_DIR/books" "$DATA_DIR/generated" "$DATA_DIR/logs/generator"
 
 if [[ ! -d "$APP_DIR" ]]; then
   echo "Cannot find epubToAudioBook directory relative to this script." >&2
@@ -28,6 +31,12 @@ EXTRA_ARGS=()
 if [[ "$RELOAD" == "1" ]]; then
   EXTRA_ARGS+=("--reload")
 fi
+
+export ABS_WORKSPACE_ROOT="$REPO_ROOT"
+export ABS_DATA_DIR="$DATA_DIR"
+export ABS_BOOKS_DIR="$DATA_DIR/books"
+export ABS_OUTPUT_DIR="$DATA_DIR/generated"
+export ABS_GENERATOR_LOG_DIR="$DATA_DIR/logs/generator"
 
 exec "$UVICORN_BIN" epubToAudioBook.app.backend.main:app \
   --host "$HOST" \

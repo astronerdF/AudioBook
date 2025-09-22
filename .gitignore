@@ -1,15 +1,41 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
-# Logs & outputs
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Node / build artifacts
+node_modules/
+dist/
+*.log
+
+# Local environment files
+.env
+*.env
+
+# Workspace data buckets
+data/books/*
+!data/books/.gitkeep
+data/generated/*
+!data/generated/.gitkeep
+data/logs/*
+!data/logs/.gitkeep
+!data/logs/audiobookshelf/.gitkeep
+!data/logs/generator/.gitkeep
+data/audiobookshelf/*
+!data/audiobookshelf/.gitkeep
+
+# Legacy directories (safe to ignore if still present)
+Books/
 logs/
 out/
 
-# Books (keep folder, ignore contents)
-Books/*
-!Books/.gitkeep
-
-# Model weights
+# Model weights & caches
 *.pth
 .cache/

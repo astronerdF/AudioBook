@@ -1,5 +1,6 @@
 import logging
 import datetime
+import os
 from pathlib import Path
 
 def get_formatter(is_worker):
@@ -34,9 +35,16 @@ def setup_logging(log_level, log_file=None, is_worker=False):
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 
+def _default_log_dir() -> Path:
+    env_override = os.environ.get("ABS_GENERATOR_LOG_DIR")
+    if env_override:
+        return Path(env_override)
+    return Path.cwd() / "logs"
+
+
 def generate_unique_log_path(prefix: str) -> Path:
     """Generates a unique log file path with a timestamp."""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_dir = Path("logs")
+    log_dir = _default_log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir / f"{prefix}_{timestamp}.log"

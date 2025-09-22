@@ -24,12 +24,17 @@ from audiobook_generator.core.audiobook_generator import AudiobookGenerator
 from audiobook_generator.utils.log_handler import generate_unique_log_path
 from audiobook_generator.utils.m4b_builder import M4BPackagingError, package_m4b
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-sys.path.append(str(BASE_DIR / "tts"))
-BOOKS_DIR = BASE_DIR / "Books"
-OUTPUT_DIR = BASE_DIR / "out"
-FRONTEND_DIR = BASE_DIR / "app" / "frontend"
-LOGS_DIR = BASE_DIR / "logs"
+GENERATOR_ROOT = Path(__file__).resolve().parents[2]
+default_workspace = GENERATOR_ROOT.parents[1] if len(GENERATOR_ROOT.parents) > 1 else GENERATOR_ROOT
+WORKSPACE_ROOT = Path(os.environ.get("ABS_WORKSPACE_ROOT", default_workspace))
+DATA_ROOT = Path(os.environ.get("ABS_DATA_DIR", WORKSPACE_ROOT / "data"))
+
+sys.path.append(str(GENERATOR_ROOT / "tts"))
+
+BOOKS_DIR = Path(os.environ.get("ABS_BOOKS_DIR", DATA_ROOT / "books"))
+OUTPUT_DIR = Path(os.environ.get("ABS_OUTPUT_DIR", DATA_ROOT / "generated"))
+FRONTEND_DIR = GENERATOR_ROOT / "app" / "frontend"
+LOGS_DIR = Path(os.environ.get("ABS_GENERATOR_LOG_DIR", DATA_ROOT / "logs" / "generator"))
 
 DEFAULT_VOICE = "af_heart"
 AVAILABLE_VOICES: List[str] = [

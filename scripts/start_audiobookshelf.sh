@@ -3,9 +3,11 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$REPO_ROOT/audiobookshelf"
-LOG_DIR="$REPO_ROOT/logs"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_DIR="$REPO_ROOT/apps/audiobookshelf"
+DATA_DIR="${DATA_DIR:-$REPO_ROOT/data}"
+APP_DATA_DIR="$DATA_DIR/audiobookshelf"
+LOG_DIR="$DATA_DIR/logs/audiobookshelf"
 PID_FILE="$LOG_DIR/audiobookshelf.pid"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 LOG_FILE="$LOG_DIR/audiobookshelf-$TIMESTAMP.log"
@@ -15,7 +17,7 @@ if [[ ! -d "$APP_DIR" ]]; then
   exit 1
 fi
 
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" "$APP_DATA_DIR/config" "$APP_DATA_DIR/metadata" "$APP_DATA_DIR/backups"
 
 cd "$APP_DIR"
 
@@ -36,6 +38,11 @@ if [[ -f "$PID_FILE" ]] && ps -p "$(cat "$PID_FILE")" > /dev/null 2>&1; then
   echo "Audiobookshelf appears to be running already (PID $(cat "$PID_FILE"))." >&2
   exit 1
 fi
+
+export CONFIG_PATH="$APP_DATA_DIR/config"
+export METADATA_PATH="$APP_DATA_DIR/metadata"
+export BACKUP_PATH="$APP_DATA_DIR/backups"
+export LOG_OUTPUT_DIR="$LOG_DIR"
 
 nohup npm start -- --host "$HOST" --port "$PORT" >> "$LOG_FILE" 2>&1 &
 PID=$!

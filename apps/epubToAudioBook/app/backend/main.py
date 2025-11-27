@@ -132,7 +132,12 @@ def _detect_kokoro_resources(device_hint: str) -> Dict[str, Optional[object]]:
         )
         return result
     except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning("Failed to detect CUDA resources: %s", exc)
+        logger.warning("Failed to detect CUDA resources (%s). Falling back to CPU.", exc)
+        # If CUDA probing explodes (missing torch, CPU-only build, etc.)
+        # fall back to a safe CPU configuration instead of leaving the
+        # caller stuck with an unusable 'cuda' device hint.
+        result["primary_device"] = "cpu"
+        result["device_pool"] = None
         return result
 
 

@@ -3,6 +3,7 @@ from typing import List, Tuple
 from audiobook_generator.config.general_config import GeneralConfig
 
 EPUB = "epub"
+PDF = "pdf"
 
 
 class BaseBookParser:  # Base interface for books parsers
@@ -33,13 +34,16 @@ class BaseBookParser:  # Base interface for books parsers
 # Common support methods for all book parsers
 
 def get_supported_book_parsers() -> List[str]:
-    return [EPUB]
+    return [EPUB, PDF]
 
 
 def get_book_parser(config) -> BaseBookParser:
     if config.input_file.endswith(EPUB):
         from audiobook_generator.book_parsers.epub_book_parser import EpubBookParser
         return EpubBookParser(config)
+    if config.input_file.endswith(PDF):
+        from audiobook_generator.book_parsers.pdf_book_parser import PdfBookParser
+        return PdfBookParser(config)
     # elif <- new book parser goes here
     else:
         raise NotImplementedError(f"Unsupported file format: {config.input_file}")

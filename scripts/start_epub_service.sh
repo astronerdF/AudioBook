@@ -38,7 +38,7 @@ export ABS_BOOKS_DIR="$DATA_DIR/books"
 export ABS_OUTPUT_DIR="$DATA_DIR/generated"
 export ABS_GENERATOR_LOG_DIR="$DATA_DIR/logs/generator"
 
-exec "$UVICORN_BIN" epubToAudioBook.app.backend.main:app \
+exec "$UVICORN_BIN" app.backend.main:app \
   --host "$HOST" \
   --port "$PORT" \
   "${EXTRA_ARGS[@]}"

@@ -13,6 +13,8 @@ from audiobook_generator.core.alignment import align_tokens_with_audio
 from audiobook_generator.tts_providers.base_tts_provider import BaseTTSProvider
 from audiobook_generator.utils.utils import split_text, set_audio_tags, pydub_merge_audio_segments
 
+import time
+
 logger = logging.getLogger(__name__)
 
 TOKEN_PATTERN = re.compile(r"[\w]+(?:['\-][\w]+)*|[^\s]", re.UNICODE)
@@ -95,13 +97,23 @@ class KokoroTTSProvider(BaseTTSProvider):
             self._write_metadata(output_file, audio_tags, text, timings, total_duration_ms)
 
     def _synthesize_speech(self, text: str, output_file: str) -> Dict[str, float]:
-        self.get_tts_model().synthesize(
-            text=text,
-            output_file=output_file,
-            voice=self.config.voice_name,
-            language="en",
-        )
-        return self._analyze_audio(output_file)
+        last_exception = None
+        for attempt in range(1, 4):
+            try:
+                self.get_tts_model().synthesize(
+                    text=text,
+                    output_file=output_file,
+                    voice=self.config.voice_name,
+                    language="en",
+                )
+                return self._analyze_audio(output_file)
+            except Exception as e:
+                last_exception = e
+                logger.warning(f"Synthesis attempt {attempt} failed for chunk: {e}")
+                if attempt < 3:
+                    time.sleep(1)
+        
+        raise last_exception or Exception("Synthesis failed after all retry attempts")
 
     def _analyze_audio(self, audio_path: str) -> Dict[str, float]:
         with sf.SoundFile(audio_path) as audio_file:

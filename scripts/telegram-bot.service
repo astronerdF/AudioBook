@@ -1,0 +1,17 @@
+[Unit]
+Description=Telegram AudioBook Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ahmadfn
+WorkingDirectory=/lhome/ahmadfn/AudioBook/apps
+ExecStart=/lhome/ahmadfn/.pyenv/versions/3.11.9/envs/Audio/bin/python telegram_bot.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

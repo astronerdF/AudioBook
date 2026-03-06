@@ -1,0 +1,19 @@
+<lint-module
+    format="1"
+    dir="/lhome/ahmadfn/AudioBook/apps/KokoroAndroid/app"
+    name=":app"
+    type="APP"
+    maven="KokoroAndroid:app:"
+    agpVersion="8.2.0"
+    buildFolder="build"
+    bootClassPath="/lhome/ahmadfn/Android/Sdk/platforms/android-34/android.jar:/lhome/ahmadfn/Android/Sdk/build-tools/34.0.0/core-lambda-stubs.jar"
+    javaSourceLevel="1.8"
+    compileTarget="android-34"
+    neverShrinking="true">
+  <lintOptions
+      abortOnError="true"
+      absolutePaths="true"
+      checkReleaseBuilds="true"
+      explainIssues="true"/>
+  <variant name="debug"/>
+</lint-module>

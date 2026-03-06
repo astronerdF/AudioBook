@@ -1,0 +1,7 @@
+#Fri Nov 28 09:47:48 CET 2025
+base.1=/lhome/ahmadfn/AudioBook/apps/KokoroAndroid/app/build/intermediates/dex/release/mergeDexRelease/classes2.dex
+path.1=classes2.dex
+base.0=/lhome/ahmadfn/AudioBook/apps/KokoroAndroid/app/build/intermediates/dex/release/mergeDexRelease/classes.dex
+renamed.1=classes2.dex
+renamed.0=classes.dex
+path.0=classes.dex

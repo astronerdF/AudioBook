@@ -186,14 +186,30 @@ class AudiobookGenerator:
                 initargs=(self.config, self.config.log, self.config.log_file, True),
             ) as pool:
                 # Process chapters and collect results
-                results = []
-                for idx, success in tqdm(
-                    pool.imap_unordered(self.process_chapter_wrapper, tasks),
-                    total=len(tasks),
-                    desc="Converting chapters"
-                ):
-                    results.append((idx, success))
-                # Check for failed chapters
+                success_map = {}
+                attempt = 1
+                max_attempts = 3
+                current_tasks = list(tasks)
+
+                while current_tasks and attempt <= max_attempts:
+                    if attempt > 1:
+                        logger.info(f"Retrying {len(current_tasks)} failed chapters (Attempt {attempt}/{max_attempts})...")
+
+                    for idx, success in tqdm(
+                        pool.imap_unordered(self.process_chapter_wrapper, current_tasks),
+                        total=len(current_tasks),
+                        desc=f"Converting chapters (Attempt {attempt})" if attempt > 1 else "Converting chapters"
+                    ):
+                        success_map[idx] = success
+                    
+                    # Update current_tasks to only include those that failed
+                    current_tasks = [t for t in tasks if not success_map.get(t[0], False)]
+                    attempt += 1
+
+                # Prepare results for manifest and status checking
+                results = list(success_map.items())
+
+                # Check for failed chapters after all retries
                 for idx, success in results:
                     if not success:
                         chapter_title = chapters_to_process[idx - self.config.chapter_start][0]

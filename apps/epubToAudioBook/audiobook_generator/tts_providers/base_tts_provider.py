@@ -7,6 +7,7 @@ TTS_OPENAI = "openai"
 TTS_EDGE = "edge"
 TTS_PIPER = "piper"
 TTS_KOKORO = "kokoro"
+TTS_VIBEVOICE = "vibevoice"
 
 
 class BaseTTSProvider:  # Base interface for TTS providers
@@ -36,7 +37,7 @@ class BaseTTSProvider:  # Base interface for TTS providers
 
 # Common support methods for all TTS providers
 def get_supported_tts_providers() -> List[str]:
-    return [TTS_AZURE, TTS_OPENAI, TTS_EDGE, TTS_PIPER, TTS_KOKORO]
+    return [TTS_AZURE, TTS_OPENAI, TTS_EDGE, TTS_PIPER, TTS_KOKORO, TTS_VIBEVOICE]
 
 
 def get_tts_provider(config) -> BaseTTSProvider:
@@ -63,6 +64,10 @@ def get_tts_provider(config) -> BaseTTSProvider:
     elif config.tts == TTS_KOKORO:
         from audiobook_generator.tts_providers.kokoro_tts_provider import KokoroTTSProvider
         return KokoroTTSProvider(config)
+
+    elif config.tts == TTS_VIBEVOICE:
+        from audiobook_generator.tts_providers.vibevoice_tts_provider import VibeVoiceTTSProvider
+        return VibeVoiceTTSProvider(config)
 
     else:
         raise ValueError(f"Invalid TTS provider: {config.tts}")

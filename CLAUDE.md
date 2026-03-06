@@ -1,6 +1,6 @@
 # AudioBook - Claude Code Guide
 
-Personal project for generating high-quality audiobooks from EPUB files using Kokoro TTS, with synchronized word-level highlighting.
+Personal project for generating high-quality audiobooks from EPUB files using Kokoro TTS and VibeVoice TTS, with synchronized word-level highlighting and dramatized multi-voice support.
 
 ## Architecture Overview
 
@@ -24,7 +24,7 @@ EPUB upload → FastAPI (parse + chunk) → Kokoro TTS (synthesize) → WhisperX
 | `apps/epubToAudioBook/app/backend/main.py` | FastAPI server, all REST endpoints |
 | `apps/epubToAudioBook/app/frontend/` | Web UI (vanilla JS) |
 | `apps/epubToAudioBook/audiobook_generator/core/` | Core generation logic |
-| `apps/epubToAudioBook/audiobook_generator/tts_providers/` | TTS backends (Kokoro, OpenAI, Azure, Edge, Piper) |
+| `apps/epubToAudioBook/audiobook_generator/tts_providers/` | TTS backends (Kokoro, VibeVoice, OpenAI, Azure, Edge, Piper) |
 | `apps/epubToAudioBook/audiobook_generator/book_parsers/` | EPUB/PDF parsers |
 | `apps/epubToAudioBook/audiobook_generator/utils/m4b_builder.py` | M4B packaging with FFmpeg |
 | `apps/KokoroAndroid/app/src/main/java/com/example/kokoroandroid/` | Android app source |
@@ -35,7 +35,7 @@ EPUB upload → FastAPI (parse + chunk) → Kokoro TTS (synthesize) → WhisperX
 
 ## Tech Stack
 
-- **TTS**: Kokoro 82M (PyTorch, local GPU/CPU)
+- **TTS**: Kokoro 82M (PyTorch, local GPU/CPU), VibeVoice 1.5B/7B (multi-voice, voice cloning)
 - **Backend**: FastAPI + Uvicorn (Python 3.10+)
 - **Audio**: FFmpeg, pydub, Mutagen
 - **Alignment**: WhisperX / NeMo / torchaudio
@@ -83,7 +83,60 @@ Currently runs locally only. No cloud deployment configured. Services bind to `0
 
 ## Roadmap
 
-### Phase 1: Telegram Bot Integration (Next)
+### Phase 0: Dramatized Audiobook System (ACTIVE - In Progress)
+
+**Goal**: Build a dramatized audiobook system (like Red Rising audiobooks) with multi-voice, emotion-aware TTS using Microsoft VibeVoice. Ultimate target: dramatized Game of Thrones audiobooks.
+
+**Architecture**:
+```
+EPUB → TextAnalyzer (dialogue/character/emotion detection)
+     → VoiceRegistry (character-to-voice mapping, voice cloning refs)
+     → VibeVoice TTS (multi-voice synthesis with [tone:STYLE] tags)
+     → DramatizedGenerator (orchestration)
+     → M4B packaging
+```
+
+**New files created**:
+| File | Purpose | Status |
+|------|---------|--------|
+| `audiobook_generator/core/text_analyzer.py` | Parses chapters into narration/dialogue segments with character attribution and emotion detection | DONE |
+| `audiobook_generator/core/voice_registry.py` | Manages character→voice mappings, persisted per book as JSON | DONE |
+| `audiobook_generator/core/dramatized_generator.py` | Orchestrates full dramatized pipeline (analyze→assign→synthesize) | DONE |
+| `audiobook_generator/tts_providers/vibevoice_tts_provider.py` | VibeVoice TTS provider with multi-voice + voice cloning support | DONE (skeleton) |
+
+**VibeVoice TTS facts**:
+- Open-source model from Microsoft Research (community fork: `vibevoice-community/VibeVoice`)
+- 1.5B model: MOS 4.3, ~8 GB VRAM, RTF ~0.2 | 7B model: highest quality, ~24 GB VRAM
+- Zero-shot voice cloning from 10-60s reference audio
+- Up to 4 speakers per generation, 90 min continuous synthesis
+- Emotion via `[tone:STYLE]` tags (whisper, excited, angry, sad, etc.)
+- Install: `pip install vibevoice` or `pip install vibevoice[gpu]`
+- Model weights: `microsoft/VibeVoice-1.5B` on HuggingFace
+
+**What's done (Session 1)**:
+- [x] Text analysis pipeline (dialogue detection, character extraction, emotion hints from speech verbs)
+- [x] Character voice registry (persistent per-book JSON, voice cloning profile support)
+- [x] VibeVoice TTS provider (multi-voice API, emotion tags, voice cloning mode)
+- [x] Dramatized generator orchestrator (3-phase: analyze → assign voices → synthesize)
+- [x] Config extensions for dramatized mode
+
+**What's next (Session 2)**:
+- [ ] Install VibeVoice and test basic synthesis on GPU
+- [ ] Test text analyzer on a Game of Thrones chapter (validate dialogue/character detection)
+- [ ] Collect/record reference audio samples for key GoT characters
+- [ ] Build voice cloning pipeline (reference audio → VoiceProfile)
+- [ ] Wire dramatized mode into FastAPI endpoints
+- [ ] Test end-to-end single chapter generation
+
+**What's next (Session 3+)**:
+- [ ] Improve character detection with NER (spaCy) for better accuracy
+- [ ] Add scene-level context awareness (e.g., battle vs. quiet conversation)
+- [ ] Implement sound effects layer (ambient sounds, transitions)
+- [ ] Build character voice configuration UI in web frontend
+- [ ] Full Game of Thrones book generation and quality evaluation
+- [ ] Optimize for batch generation (multiple chapters, GPU scheduling)
+
+### Phase 1: Telegram Bot Integration
 - Create a Telegram bot that accepts EPUB uploads on a channel/chat
 - Bot triggers audiobook generation via the existing FastAPI backend
 - Generated book is stored in `data/generated/` so it appears in Audiobookshelf automatically
@@ -105,3 +158,15 @@ Currently runs locally only. No cloud deployment configured. Services bind to `0
 - Scripts in `scripts/` use env vars, never hardcode paths or secrets
 - TTS providers follow `BaseTTSProvider` interface in `tts_providers/base_tts_provider.py`
 - Book parsers follow `BaseBookParser` interface in `book_parsers/base_book_parser.py`
+
+
+## Version Control Requirements
+
+**CRITICAL: Git version control must be maintained religiously.**
+
+- Commit all changes to the repository frequently
+- Use descriptive commit messages that explain what changed and why
+- Never leave significant changes uncommitted
+- Before making major modifications, ensure the current state is committed
+- This is essential for tracking experiments, rollback capability, and collaboration
+- **NEVER add "Co-Authored-By" lines to commit messages**

@@ -73,8 +73,16 @@ class GeneralConfig:
         self.piper_sentence_silence = getattr(args, 'piper_sentence_silence', None)
 
         # TTS provider: Kokoro specific arguments
-        default_device = 'cpu' if getattr(args, 'tts', None) == 'kokoro' else None
+        default_device = 'cpu' if getattr(args, 'tts', None) in ('kokoro', 'vibevoice') else None
         self.device = getattr(args, 'device', default_device)
+
+        # TTS provider: VibeVoice specific arguments
+        self.vibevoice_model = getattr(args, 'vibevoice_model', 'microsoft/VibeVoice-1.5B')
+        self.vibevoice_chunk_chars = getattr(args, 'vibevoice_chunk_chars', 5000)
+        self.dramatized = getattr(args, 'dramatized', False)
+        self.voice_registry_path = getattr(args, 'voice_registry_path', None)
+        self.character_list = getattr(args, 'character_list', None)
+        self.narrator_reference_audio = getattr(args, 'narrator_reference_audio', None)
 
     def __str__(self):
         return ",\n".join(f"{key}={value}" for key, value in self.__dict__.items())

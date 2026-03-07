@@ -1,8 +1,7 @@
 /**
  * Chrome Reader - Audio Player
  * Manages audio playback with word-level timing synchronization.
- * Uses Audio elements for simple, reliable playback with speed control.
- * Pre-fetches upcoming paragraphs for gapless playback.
+ * Pre-fetches upcoming paragraphs for smoother playback.
  */
 
 window.ChromeReader = window.ChromeReader || {};
@@ -13,26 +12,43 @@ ChromeReader.Player = (() => {
   let speed = 1.0;
 
   // Playback state
-  let paragraphs = [];       // Array of extracted paragraphs
+  let paragraphs = [];
   let currentParaIdx = 0;
-  let currentSentences = []; // Current paragraph split into sentences
   let currentSentIdx = 0;
-  let audioQueue = [];       // Pre-fetched audio data
-  let currentAudio = null;   // Currently playing Audio element
+  let currentAudio = null;
   let isPlaying = false;
   let isPaused = false;
   let animFrameId = null;
-  let onStateChange = null;  // Callback for state updates
-  let onError = null;        // Callback for error notifications
-  let onStatusUpdate = null; // Callback for loading/progress status
+  let runToken = 0;
 
-  // Pre-fetch buffer
-  const PREFETCH_AHEAD = 2;  // Paragraphs to pre-fetch
-  const prefetchCache = new Map(); // paraIdx -> Promise<sentences data>
+  // Callbacks
+  let onStateChange = null;
+  let onError = null;
+  let onStatusUpdate = null;
 
-  /**
-   * Split text into sentences using Intl.Segmenter if available, else regex.
-   */
+  const PREFETCH_AHEAD = 2;
+  const prefetchCache = new Map(); // paraIdx -> Promise<{sentences, results, paragraph}>
+
+  function emitState() {
+    if (onStateChange) onStateChange(getState());
+  }
+
+  function emitStatus(message) {
+    if (onStatusUpdate) onStatusUpdate(message);
+  }
+
+  function getState() {
+    return {
+      isPlaying,
+      isPaused,
+      currentParaIdx,
+      currentSentIdx,
+      totalParagraphs: paragraphs.length,
+      voice,
+      speed,
+    };
+  }
+
   function splitSentences(text) {
     if (typeof Intl !== "undefined" && Intl.Segmenter) {
       try {
@@ -41,70 +57,112 @@ ChromeReader.Player = (() => {
           (s) => s.length > 0
         );
       } catch (_) {
-        // Fallback
+        // Fallback below.
       }
     }
-    // Regex fallback
-    const parts = text.split(/(?<=[.!?])\s+/);
-    return parts.map((p) => p.trim()).filter((p) => p.length > 0);
+    return text
+      .split(/(?<=[.!?])\s+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
   }
 
   /**
-   * Fetch audio for a single sentence via the background service worker.
+   * Map each sentence to its start offset in the original paragraph text.
+   * Needed because server word offsets are sentence-relative.
+   */
+  function mapSentenceOffsets(paragraphText, sentences) {
+    const offsets = [];
+    let cursor = 0;
+
+    for (const sentence of sentences) {
+      const idx = paragraphText.indexOf(sentence, cursor);
+      const start = idx >= 0 ? idx : cursor;
+      offsets.push(start);
+      cursor = start + sentence.length;
+    }
+    return offsets;
+  }
+
+  function offsetWords(words, sentenceOffset) {
+    if (!Array.isArray(words) || words.length === 0) return [];
+    return words.map((w) => ({
+      ...w,
+      char_start: (w.char_start || 0) + sentenceOffset,
+      char_end: (w.char_end || 0) + sentenceOffset,
+    }));
+  }
+
+  /**
+   * Ask background service worker to synthesize a sentence.
    */
   async function synthesizeSentence(text) {
     return new Promise((resolve, reject) => {
-      if (!isPlaying) {
-        reject(new Error("Stopped"));
-        return;
-      }
       chrome.runtime.sendMessage(
-        { action: "synthesize", text, voice, serverUrl },
-        (response) => {
+        {
+          action: "synthesize",
+          serverUrl,
+          text,
+          voice,
+        },
+        (resp) => {
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
-          } else if (response?.error) {
-            reject(new Error(response.error));
-          } else {
-            resolve(response);
+            return;
           }
+          if (!resp?.ok) {
+            if (resp?.error) {
+              reject(new Error(resp.error));
+            } else if (resp === undefined) {
+              reject(new Error("No response from background worker"));
+            } else {
+              reject(new Error(`Unexpected background response: ${JSON.stringify(resp)}`));
+            }
+            return;
+          }
+          resolve(resp.data);
         }
       );
     });
   }
 
-  /**
-   * Pre-fetch all sentences for a paragraph.
-   */
-  async function prefetchParagraph(paraIdx) {
+  async function prefetchParagraph(paraIdx, token) {
     if (prefetchCache.has(paraIdx)) return prefetchCache.get(paraIdx);
     if (paraIdx >= paragraphs.length) return null;
 
     const promise = (async () => {
       const para = paragraphs[paraIdx];
       const sentences = splitSentences(para.text);
+      const sentenceOffsets = mapSentenceOffsets(para.text, sentences);
       const results = [];
 
       for (let si = 0; si < sentences.length; si++) {
+        if (!isPlaying || token !== runToken) return null;
         const sentence = sentences[si];
-        if (!isPlaying) return null;
-        if (onStatusUpdate) {
-          onStatusUpdate(
-            `Synthesizing paragraph ${paraIdx + 1}/${paragraphs.length}, sentence ${si + 1}/${sentences.length}...`
-          );
-        }
+
+        emitStatus(
+          `Synthesizing paragraph ${paraIdx + 1}/${paragraphs.length}, sentence ${si + 1}/${sentences.length}...`
+        );
+
         try {
           const data = await synthesizeSentence(sentence);
-          results.push({ text: sentence, ...data });
+          results.push({
+            text: sentence,
+            sentenceOffset: sentenceOffsets[si] || 0,
+            ...data,
+          });
         } catch (e) {
-          if (!isPlaying) return null;
           console.error("Chrome Reader: synthesis error", e);
-          if (onStatusUpdate) {
-            onStatusUpdate(`Error on sentence ${si + 1}: ${e.message}`);
-          }
-          results.push({ text: sentence, error: e.message });
+          emitStatus(
+            `Error on paragraph ${paraIdx + 1}, sentence ${si + 1}: ${e?.message || "unknown"}`
+          );
+          results.push({
+            text: sentence,
+            sentenceOffset: sentenceOffsets[si] || 0,
+            error: e.message,
+          });
         }
       }
+
       return { sentences, results, paragraph: para };
     })();
 
@@ -112,22 +170,18 @@ ChromeReader.Player = (() => {
     return promise;
   }
 
-  /**
-   * Start pre-fetching upcoming paragraphs.
-   */
-  function triggerPrefetch() {
-    for (let i = currentParaIdx; i < Math.min(currentParaIdx + PREFETCH_AHEAD, paragraphs.length); i++) {
-      prefetchParagraph(i);
+  function triggerPrefetch(token) {
+    for (
+      let i = currentParaIdx;
+      i < Math.min(currentParaIdx + PREFETCH_AHEAD, paragraphs.length);
+      i++
+    ) {
+      prefetchParagraph(i, token);
     }
   }
 
-  /**
-   * Play a single audio chunk with word highlighting.
-   * Returns a promise that resolves when playback finishes.
-   */
-  function playChunk(audioB64, words, textNodes) {
+  function playChunk(audioB64, words, textNodes, token) {
     return new Promise((resolve, reject) => {
-      // Decode base64 WAV to blob URL
       const binary = atob(audioB64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) {
@@ -139,15 +193,12 @@ ChromeReader.Player = (() => {
       const audio = new Audio(url);
       audio.playbackRate = speed;
       currentAudio = audio;
-
       let currentWordIdx = -1;
 
-      // Word highlighting loop
       function tick() {
-        if (!isPlaying || audio.paused) return;
+        if (!isPlaying || isPaused || token !== runToken || audio.paused) return;
         const timeMs = audio.currentTime * 1000;
 
-        // Find current word
         let newIdx = -1;
         for (let i = 0; i < words.length; i++) {
           if (timeMs >= words[i].start_ms && timeMs < words[i].end_ms) {
@@ -155,7 +206,6 @@ ChromeReader.Player = (() => {
             break;
           }
         }
-        // If past all words, highlight last word
         if (newIdx === -1 && words.length > 0 && timeMs >= words[words.length - 1].start_ms) {
           newIdx = words.length - 1;
         }
@@ -174,14 +224,16 @@ ChromeReader.Player = (() => {
 
       audio.addEventListener("ended", () => {
         cancelAnimationFrame(animFrameId);
+        animFrameId = null;
         ChromeReader.Highlighter.clearWord();
         URL.revokeObjectURL(url);
         currentAudio = null;
         resolve();
       });
 
-      audio.addEventListener("error", (e) => {
+      audio.addEventListener("error", () => {
         cancelAnimationFrame(animFrameId);
+        animFrameId = null;
         URL.revokeObjectURL(url);
         currentAudio = null;
         reject(new Error("Audio playback error"));
@@ -191,32 +243,27 @@ ChromeReader.Player = (() => {
     });
   }
 
-  /**
-   * Play through all paragraphs sequentially.
-   */
-  async function playLoop() {
+  async function playLoop(token) {
     let anyPlayed = false;
 
-    while (currentParaIdx < paragraphs.length && isPlaying) {
-      const paraData = await prefetchParagraph(currentParaIdx);
-      if (!paraData || !isPlaying) break;
+    while (currentParaIdx < paragraphs.length && isPlaying && token === runToken) {
+      const paraData = await prefetchParagraph(currentParaIdx, token);
+      if (!paraData || !isPlaying || token !== runToken) break;
 
       const { results, paragraph } = paraData;
+      ChromeReader.Highlighter.highlightSentenceElement(paragraph.element);
+      emitStatus(`Reading paragraph ${currentParaIdx + 1}/${paragraphs.length}`);
+      triggerPrefetch(token);
 
-      // If first paragraph and ALL sentences failed, show error and bail
       if (!anyPlayed && results.length > 0 && results.every((r) => r.error)) {
-        const errMsg = results[0].error || "Unknown error";
-        if (onError) onError(`Cannot reach TTS server: ${errMsg}`);
+        const firstError = results.find((r) => r.error)?.error || "TTS failed";
+        const msg = `Cannot reach TTS server: ${firstError}`;
+        if (onError) onError(msg);
         stop();
         return;
       }
 
-      ChromeReader.Highlighter.highlightSentenceElement(paragraph.element);
-
-      // Trigger pre-fetch for next paragraphs
-      triggerPrefetch();
-
-      for (let sentIdx = 0; sentIdx < results.length && isPlaying; sentIdx++) {
+      for (let sentIdx = 0; sentIdx < results.length && isPlaying && token === runToken; sentIdx++) {
         currentSentIdx = sentIdx;
         emitState();
 
@@ -224,74 +271,55 @@ ChromeReader.Player = (() => {
         if (chunk.error || !chunk.audio_b64) continue;
 
         try {
-          // Wait if paused
-          while (isPaused && isPlaying) {
+          while (isPaused && isPlaying && token === runToken) {
             await new Promise((r) => setTimeout(r, 100));
           }
-          if (!isPlaying) break;
+          if (!isPlaying || token !== runToken) break;
 
-          await playChunk(chunk.audio_b64, chunk.words || [], paragraph.textNodes);
+          const shiftedWords = offsetWords(
+            chunk.words || [],
+            chunk.sentenceOffset || 0
+          );
+          await playChunk(chunk.audio_b64, shiftedWords, paragraph.textNodes, token);
           anyPlayed = true;
         } catch (e) {
-          if (!isPlaying) break;
+          if (!isPlaying || token !== runToken) break;
           console.error("Chrome Reader: playback error", e);
         }
       }
 
-      if (isPlaying) {
+      if (isPlaying && token === runToken) {
         currentParaIdx++;
         currentSentIdx = 0;
         emitState();
       }
     }
 
-    // Finished all paragraphs
-    if (isPlaying) {
+    if (isPlaying && token === runToken) {
       stop();
     }
   }
 
-  /**
-   * Emit current state for popup updates.
-   */
-  function emitState() {
-    if (onStateChange) {
-      onStateChange(getState());
-    }
-  }
-
-  function getState() {
-    return {
-      isPlaying,
-      isPaused,
-      currentParaIdx,
-      currentSentIdx,
-      totalParagraphs: paragraphs.length,
-      voice,
-      speed,
-    };
-  }
-
-  // --- Public API ---
-
   function start(extractedParagraphs, settings = {}) {
-    stop(); // Clean up any previous session
+    stop();
 
     if (settings.serverUrl) serverUrl = settings.serverUrl;
     if (settings.voice) voice = settings.voice;
     if (settings.speed) speed = settings.speed;
 
-    paragraphs = extractedParagraphs;
+    paragraphs = extractedParagraphs || [];
     currentParaIdx = 0;
     currentSentIdx = 0;
     isPlaying = true;
     isPaused = false;
+    runToken++;
     prefetchCache.clear();
 
     ChromeReader.Highlighter.init();
     emitState();
-    triggerPrefetch();
-    playLoop();
+    emitStatus("Starting synthesis...");
+    triggerPrefetch(runToken);
+    playLoop(runToken);
   }
 
   function pause() {
@@ -317,6 +345,8 @@ ChromeReader.Player = (() => {
   function stop() {
     isPlaying = false;
     isPaused = false;
+    runToken++;
+
     if (currentAudio) {
       currentAudio.pause();
       currentAudio = null;
@@ -325,15 +355,17 @@ ChromeReader.Player = (() => {
       cancelAnimationFrame(animFrameId);
       animFrameId = null;
     }
+
     prefetchCache.clear();
     paragraphs = [];
+    currentParaIdx = 0;
+    currentSentIdx = 0;
     ChromeReader.Highlighter.clearAll();
     emitState();
   }
 
   function skipForward() {
     if (!isPlaying) return;
-    // Skip to next paragraph
     if (currentAudio) {
       currentAudio.pause();
       currentAudio.dispatchEvent(new Event("ended"));
@@ -342,7 +374,7 @@ ChromeReader.Player = (() => {
 
   function skipBack() {
     if (!isPlaying) return;
-    // Go back to start of current paragraph (or previous if at start)
+
     if (currentParaIdx > 0 && currentSentIdx === 0) {
       currentParaIdx = Math.max(0, currentParaIdx - 1);
     }
@@ -353,8 +385,9 @@ ChromeReader.Player = (() => {
       currentAudio.pause();
       currentAudio = null;
     }
-    // Restart playback from current position
-    playLoop();
+
+    runToken++;
+    playLoop(runToken);
   }
 
   function setSpeed(newSpeed) {
@@ -365,7 +398,6 @@ ChromeReader.Player = (() => {
 
   function setVoice(newVoice) {
     voice = newVoice;
-    // Clear prefetch cache since voice changed
     prefetchCache.clear();
     emitState();
   }

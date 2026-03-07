@@ -1,6 +1,6 @@
 /**
  * Chrome Reader - Background Service Worker
- * Handles keyboard shortcuts, settings, and TTS server health checks.
+ * Handles keyboard shortcuts, settings, health checks, and TTS proxying.
  */
 
 const DEFAULT_SETTINGS = {
@@ -13,7 +13,25 @@ const DEFAULT_SETTINGS = {
   highlightWords: true,
 };
 
-// Keyboard shortcuts
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function parseErrorResponse(resp) {
+  try {
+    const body = await resp.json();
+    return body?.detail || body?.message || `HTTP ${resp.status}`;
+  } catch (_) {
+    return `HTTP ${resp.status}`;
+  }
+}
+
 chrome.commands.onCommand.addListener(async (command) => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
@@ -25,11 +43,10 @@ chrome.commands.onCommand.addListener(async (command) => {
       chrome.tabs.sendMessage(tab.id, { action: "stop" });
     }
   } catch (_) {
-    // Content script not loaded on this page
+    // Content script is not available on this page.
   }
 });
 
-// Settings management
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === "getSettings") {
     chrome.storage.local.get("settings", (result) => {
@@ -46,34 +63,63 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.action === "checkServer") {
-    const url = msg.serverUrl || DEFAULT_SETTINGS.serverUrl;
-    fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) })
-      .then((r) => r.json())
-      .then((data) => sendResponse({ connected: true, ...data }))
-      .catch(() => sendResponse({ connected: false }));
+    (async () => {
+      const url = msg.serverUrl || DEFAULT_SETTINGS.serverUrl;
+      try {
+        const resp = await fetchWithTimeout(`${url}/health`, {}, 4000);
+        if (!resp.ok) {
+          sendResponse({ connected: false, error: await parseErrorResponse(resp) });
+          return;
+        }
+        const data = await resp.json();
+        sendResponse({ connected: true, ...data });
+      } catch (err) {
+        sendResponse({ connected: false, error: err?.message || "Health check failed" });
+      }
+    })();
     return true;
   }
 
-  // TTS synthesis proxy - content scripts route through here for reliable cross-origin
   if (msg.action === "synthesize") {
-    const url = msg.serverUrl || DEFAULT_SETTINGS.serverUrl;
-    fetch(`${url}/synthesize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: msg.text, voice: msg.voice }),
-      signal: AbortSignal.timeout(30000),
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error(`Server returned ${r.status}`);
-        return r.json();
-      })
-      .then((data) => sendResponse(data))
-      .catch((e) => sendResponse({ error: e.message }));
+    (async () => {
+      const url = msg.serverUrl || DEFAULT_SETTINGS.serverUrl;
+      const text = (msg.text || "").trim();
+      const voice = msg.voice || DEFAULT_SETTINGS.voice;
+
+      if (!text) {
+        sendResponse({ ok: false, error: "Empty text" });
+        return;
+      }
+
+      try {
+        const resp = await fetchWithTimeout(
+          `${url}/synthesize`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, voice }),
+          },
+          45000
+        );
+
+        if (!resp.ok) {
+          sendResponse({ ok: false, error: await parseErrorResponse(resp) });
+          return;
+        }
+
+        const data = await resp.json();
+        sendResponse({ ok: true, data });
+      } catch (err) {
+        sendResponse({
+          ok: false,
+          error: err?.name === "AbortError" ? "TTS request timed out" : (err?.message || "TTS request failed"),
+        });
+      }
+    })();
     return true;
   }
 });
 
-// Extension install - set defaults
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get("settings", (result) => {
     if (!result.settings) {

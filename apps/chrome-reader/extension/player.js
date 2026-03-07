@@ -24,6 +24,7 @@ ChromeReader.Player = (() => {
   let animFrameId = null;
   let onStateChange = null;  // Callback for state updates
   let onError = null;        // Callback for error notifications
+  let onStatusUpdate = null; // Callback for loading/progress status
 
   // Pre-fetch buffer
   const PREFETCH_AHEAD = 2;  // Paragraphs to pre-fetch
@@ -84,14 +85,23 @@ ChromeReader.Player = (() => {
       const sentences = splitSentences(para.text);
       const results = [];
 
-      for (const sentence of sentences) {
+      for (let si = 0; si < sentences.length; si++) {
+        const sentence = sentences[si];
         if (!isPlaying) return null;
+        if (onStatusUpdate) {
+          onStatusUpdate(
+            `Synthesizing paragraph ${paraIdx + 1}/${paragraphs.length}, sentence ${si + 1}/${sentences.length}...`
+          );
+        }
         try {
           const data = await synthesizeSentence(sentence);
           results.push({ text: sentence, ...data });
         } catch (e) {
           if (!isPlaying) return null;
           console.error("Chrome Reader: synthesis error", e);
+          if (onStatusUpdate) {
+            onStatusUpdate(`Error on sentence ${si + 1}: ${e.message}`);
+          }
           results.push({ text: sentence, error: e.message });
         }
       }
@@ -368,6 +378,10 @@ ChromeReader.Player = (() => {
     onError = cb;
   }
 
+  function setOnStatusUpdate(cb) {
+    onStatusUpdate = cb;
+  }
+
   return {
     start,
     pause,
@@ -380,6 +394,7 @@ ChromeReader.Player = (() => {
     setVoice,
     setOnStateChange,
     setOnError,
+    setOnStatusUpdate,
     getState,
     isActive: () => isPlaying,
   };

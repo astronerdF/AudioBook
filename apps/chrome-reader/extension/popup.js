@@ -138,6 +138,7 @@
 
   // --- Event: Play/Pause ---
   btnPlay.addEventListener("click", async () => {
+    progressText.textContent = "Injecting scripts...";
     const loaded = await ensureContentScript();
     if (!loaded) {
       progressText.textContent = "Cannot access this page";
@@ -148,7 +149,7 @@
     if (state?.isPlaying) {
       sendToContent({ action: "toggle" });
     } else {
-      // Start fresh reading
+      progressText.textContent = "Starting...";
       const settings = await saveSettings();
       sendToContent({
         action: "start",

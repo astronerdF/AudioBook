@@ -4,11 +4,12 @@ Personal project for generating high-quality audiobooks from EPUB files using Ko
 
 ## Architecture Overview
 
-Three main components:
+Four main components:
 
 1. **epubToAudioBook** (`apps/epubToAudioBook/`) - FastAPI backend that converts EPUBs to audiobooks using Kokoro TTS. Serves a web UI for uploading and managing books. Runs on port 8000.
 2. **Audiobookshelf** (`apps/audiobookshelf/`) - Node.js media server (forked/vendored) for streaming generated audiobooks. Runs on port 3333.
 3. **KokoroAndroid** (`apps/KokoroAndroid/`) - Native Android app (Kotlin + Jetpack Compose) with on-device ONNX TTS inference for local audiobook playback.
+4. **Chrome Reader** (`apps/chrome-reader/`) - Chrome extension that reads any webpage aloud using Kokoro TTS with word-level highlighting. Lightweight FastAPI TTS server on port 8008.
 
 ## Data Flow
 
@@ -32,6 +33,8 @@ EPUB upload → FastAPI (parse + chunk) → Kokoro TTS (synthesize) → WhisperX
 | `data/books/` | Uploaded EPUBs (gitignored) |
 | `data/generated/` | Output audiobooks with manifests (gitignored) |
 | `models/kokoro_model/` | Kokoro TTS weights (gitignored) |
+| `apps/chrome-reader/server/tts_server.py` | Lightweight TTS server for Chrome Reader (port 8008) |
+| `apps/chrome-reader/extension/` | Chrome extension (MV3) - content scripts, popup, background |
 
 ## Tech Stack
 
@@ -76,6 +79,17 @@ Each generated book lives in `data/generated/{book_id}/`:
 ```
 
 Key env vars: `KOKORO_DEVICE` (cuda:0/cpu), `HOST`, `PORT`, `ALIGNMENT_BACKEND` (whisperx/nemo/torchaudio).
+
+### Chrome Reader
+
+```bash
+# Start TTS server (port 8008)
+./apps/chrome-reader/server/start_server.sh
+
+# Load extension: chrome://extensions/ → Developer mode → Load unpacked → select apps/chrome-reader/extension/
+```
+
+Key env vars: `KOKORO_DEVICE` (cuda:0/cpu), `PORT` (default 8008).
 
 ## Deployment Status
 

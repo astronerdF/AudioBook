@@ -1,0 +1,76 @@
+/* Chrome Reader - highlight and overlay styles */
+
+#cr-highlight-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2147483646;
+}
+
+.cr-word-highlight {
+  position: absolute;
+  background: rgba(255, 213, 79, 0.55);
+  border-radius: 3px;
+  pointer-events: none;
+  transition: all 0.08s ease-out;
+  display: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.cr-sentence-highlight {
+  position: absolute;
+  background: rgba(255, 245, 157, 0.3);
+  border-radius: 2px;
+  pointer-events: none;
+  display: none;
+}
+
+/* Mini floating controls bar */
+#cr-controls-bar {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  border-radius: 28px;
+  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 2147483647;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  user-select: none;
+  cursor: default;
+  transition: opacity 0.2s;
+}
+
+#cr-controls-bar.cr-hidden {
+  display: none;
+}
+
+#cr-controls-bar button {
+  background: none;
+  border: none;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+#cr-controls-bar button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+#cr-controls-bar .cr-progress-text {
+  font-size: 11px;
+  opacity: 0.7;
+  min-width: 50px;
+  text-align: center;
+}

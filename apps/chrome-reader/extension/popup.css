@@ -1,0 +1,204 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 280px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.cr-popup {
+  padding: 14px;
+}
+
+/* Header */
+.cr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.cr-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.cr-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #666;
+  transition: background 0.3s;
+}
+
+.cr-status.connected {
+  background: #4caf50;
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
+}
+
+.cr-status.disconnected {
+  background: #f44336;
+  box-shadow: 0 0 6px rgba(244, 67, 54, 0.4);
+}
+
+/* Transport */
+.cr-transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.cr-btn {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.cr-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.cr-btn-play {
+  background: rgba(255, 213, 79, 0.15);
+  color: #ffd54f;
+  padding: 8px 12px;
+  border-radius: 50%;
+}
+
+.cr-btn-play:hover {
+  background: rgba(255, 213, 79, 0.3);
+}
+
+/* Progress */
+.cr-progress-row {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.cr-progress-label {
+  font-size: 11px;
+  color: #888;
+}
+
+/* Divider */
+.cr-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 10px 0;
+}
+
+/* Sections */
+.cr-section {
+  margin-bottom: 10px;
+}
+
+.cr-label {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cr-select {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+.cr-select:focus {
+  border-color: rgba(255, 213, 79, 0.4);
+}
+
+.cr-select option {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+/* Slider */
+.cr-slider {
+  width: 100%;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.cr-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffd54f;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Options */
+.cr-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cr-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #bbb;
+}
+
+.cr-checkbox input[type="checkbox"] {
+  accent-color: #ffd54f;
+  cursor: pointer;
+}
+
+/* Server input */
+.cr-input {
+  width: 100%;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 11px;
+  font-family: monospace;
+  outline: none;
+}
+
+.cr-input:focus {
+  border-color: rgba(255, 213, 79, 0.4);
+}
+
+.cr-server-section {
+  margin-bottom: 0;
+}

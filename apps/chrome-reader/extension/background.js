@@ -53,6 +53,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch(() => sendResponse({ connected: false }));
     return true;
   }
+
+  // TTS synthesis proxy - content scripts route through here for reliable cross-origin
+  if (msg.action === "synthesize") {
+    const url = msg.serverUrl || DEFAULT_SETTINGS.serverUrl;
+    fetch(`${url}/synthesize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: msg.text, voice: msg.voice }),
+      signal: AbortSignal.timeout(30000),
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Server returned ${r.status}`);
+        return r.json();
+      })
+      .then((data) => sendResponse(data))
+      .catch((e) => sendResponse({ error: e.message }));
+    return true;
+  }
 });
 
 // Extension install - set defaults

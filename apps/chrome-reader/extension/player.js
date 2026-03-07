@@ -23,7 +23,7 @@ ChromeReader.Player = (() => {
   let isPaused = false;
   let animFrameId = null;
   let onStateChange = null;  // Callback for state updates
-  let abortController = null;
+  let onError = null;        // Callback for error notifications
 
   // Pre-fetch buffer
   const PREFETCH_AHEAD = 2;  // Paragraphs to pre-fetch
@@ -49,19 +49,27 @@ ChromeReader.Player = (() => {
   }
 
   /**
-   * Fetch audio for a single sentence from the TTS server.
+   * Fetch audio for a single sentence via the background service worker.
    */
-  async function synthesizeSentence(text, signal) {
-    const resp = await fetch(`${serverUrl}/synthesize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice }),
-      signal,
+  async function synthesizeSentence(text) {
+    return new Promise((resolve, reject) => {
+      if (!isPlaying) {
+        reject(new Error("Stopped"));
+        return;
+      }
+      chrome.runtime.sendMessage(
+        { action: "synthesize", text, voice, serverUrl },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (response?.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response);
+          }
+        }
+      );
     });
-    if (!resp.ok) {
-      throw new Error(`TTS server error: ${resp.status}`);
-    }
-    return resp.json();
   }
 
   /**
@@ -77,12 +85,12 @@ ChromeReader.Player = (() => {
       const results = [];
 
       for (const sentence of sentences) {
-        if (abortController?.signal.aborted) return null;
+        if (!isPlaying) return null;
         try {
-          const data = await synthesizeSentence(sentence, abortController?.signal);
+          const data = await synthesizeSentence(sentence);
           results.push({ text: sentence, ...data });
         } catch (e) {
-          if (e.name === "AbortError") return null;
+          if (!isPlaying) return null;
           console.error("Chrome Reader: synthesis error", e);
           results.push({ text: sentence, error: e.message });
         }
@@ -177,11 +185,22 @@ ChromeReader.Player = (() => {
    * Play through all paragraphs sequentially.
    */
   async function playLoop() {
+    let anyPlayed = false;
+
     while (currentParaIdx < paragraphs.length && isPlaying) {
       const paraData = await prefetchParagraph(currentParaIdx);
       if (!paraData || !isPlaying) break;
 
       const { results, paragraph } = paraData;
+
+      // If first paragraph and ALL sentences failed, show error and bail
+      if (!anyPlayed && results.length > 0 && results.every((r) => r.error)) {
+        const errMsg = results[0].error || "Unknown error";
+        if (onError) onError(`Cannot reach TTS server: ${errMsg}`);
+        stop();
+        return;
+      }
+
       ChromeReader.Highlighter.highlightSentenceElement(paragraph.element);
 
       // Trigger pre-fetch for next paragraphs
@@ -202,6 +221,7 @@ ChromeReader.Player = (() => {
           if (!isPlaying) break;
 
           await playChunk(chunk.audio_b64, chunk.words || [], paragraph.textNodes);
+          anyPlayed = true;
         } catch (e) {
           if (!isPlaying) break;
           console.error("Chrome Reader: playback error", e);
@@ -256,7 +276,6 @@ ChromeReader.Player = (() => {
     currentSentIdx = 0;
     isPlaying = true;
     isPaused = false;
-    abortController = new AbortController();
     prefetchCache.clear();
 
     ChromeReader.Highlighter.init();
@@ -295,10 +314,6 @@ ChromeReader.Player = (() => {
     if (animFrameId) {
       cancelAnimationFrame(animFrameId);
       animFrameId = null;
-    }
-    if (abortController) {
-      abortController.abort();
-      abortController = null;
     }
     prefetchCache.clear();
     paragraphs = [];
@@ -349,6 +364,10 @@ ChromeReader.Player = (() => {
     onStateChange = cb;
   }
 
+  function setOnError(cb) {
+    onError = cb;
+  }
+
   return {
     start,
     pause,
@@ -360,6 +379,7 @@ ChromeReader.Player = (() => {
     setSpeed,
     setVoice,
     setOnStateChange,
+    setOnError,
     getState,
     isActive: () => isPlaying,
   };

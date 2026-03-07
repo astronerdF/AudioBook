@@ -31,6 +31,30 @@
     return tab;
   }
 
+  // --- Ensure content scripts are injected ---
+  async function ensureContentScript() {
+    if (!currentTab?.id) return false;
+    try {
+      await chrome.tabs.sendMessage(currentTab.id, { action: "getState" });
+      return true;
+    } catch (_) {
+      // Not loaded - inject dynamically
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: currentTab.id },
+          files: ["extractor.js", "highlighter.js", "player.js", "content.js"],
+        });
+        await chrome.scripting.insertCSS({
+          target: { tabId: currentTab.id },
+          files: ["content.css"],
+        });
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+  }
+
   // --- Send message to content script ---
   async function sendToContent(msg) {
     if (!currentTab?.id) return null;
@@ -114,6 +138,12 @@
 
   // --- Event: Play/Pause ---
   btnPlay.addEventListener("click", async () => {
+    const loaded = await ensureContentScript();
+    if (!loaded) {
+      progressText.textContent = "Cannot access this page";
+      return;
+    }
+
     const state = await sendToContent({ action: "getState" });
     if (state?.isPlaying) {
       sendToContent({ action: "toggle" });

@@ -5,11 +5,13 @@
   "description": "Read any webpage aloud with Kokoro TTS. Smart content extraction, word-level highlighting, and multiple voices.",
   "permissions": [
     "activeTab",
+    "scripting",
     "storage"
   ],
   "host_permissions": [
     "http://localhost:8008/*",
-    "http://127.0.0.1:8008/*"
+    "http://127.0.0.1:8008/*",
+    "http://*:8008/*"
   ],
   "action": {
     "default_popup": "popup.html",

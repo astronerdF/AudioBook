@@ -104,6 +104,10 @@ ChromeReader.Controller = (() => {
     ChromeReader.Highlighter.setEnabled(settings.highlightWords !== false);
     ChromeReader.Highlighter.setAutoScroll(settings.autoScroll !== false);
 
+    ChromeReader.Player.setOnError((errMsg) => {
+      showNotification(errMsg);
+    });
+
     ChromeReader.Player.setOnStateChange((state) => {
       updateControls(state);
       // Notify popup of state change

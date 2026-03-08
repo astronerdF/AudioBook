@@ -1,10 +1,9 @@
 /**
  * Chrome Reader - Background Service Worker
- * Handles keyboard shortcuts, settings, health checks, and TTS proxying.
+ * Handles keyboard shortcuts, persistent settings, and the offscreen TTS runtime.
  */
 
 const DEFAULT_SETTINGS = {
-  serverUrl: "http://localhost:8008",
   voice: "af_heart",
   speed: 1.0,
   mode: "smart",
@@ -13,23 +12,115 @@ const DEFAULT_SETTINGS = {
   highlightWords: true,
 };
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
+const OFFSCREEN_PORT_NAME = "chrome-reader-offscreen";
+
+let creatingOffscreen = null;
+let connectingOffscreenPort = null;
+let offscreenPort = null;
+let nextOffscreenRequestId = 1;
+const pendingOffscreenRequests = new Map();
+
+async function hasOffscreenDocument() {
+  const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH);
+
+  if (chrome.runtime.getContexts) {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [offscreenUrl],
+    });
+    return contexts.length > 0;
+  }
+
+  if (self.clients?.matchAll) {
+    const clients = await self.clients.matchAll();
+    return clients.some((client) => client.url === offscreenUrl);
+  }
+
+  return false;
+}
+
+async function ensureOffscreenDocument() {
+  if (await hasOffscreenDocument()) return;
+  if (creatingOffscreen) {
+    await creatingOffscreen;
+    return;
+  }
+
+  creatingOffscreen = chrome.offscreen.createDocument({
+    url: OFFSCREEN_DOCUMENT_PATH,
+    reasons: ["WORKERS"],
+    justification: "Run the packaged Kokoro TTS worker outside page CSP restrictions.",
+  });
+
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    await creatingOffscreen;
   } finally {
-    clearTimeout(timer);
+    creatingOffscreen = null;
   }
 }
 
-async function parseErrorResponse(resp) {
-  try {
-    const body = await resp.json();
-    return body?.detail || body?.message || `HTTP ${resp.status}`;
-  } catch (_) {
-    return `HTTP ${resp.status}`;
+function rejectPendingOffscreenRequests(message) {
+  for (const [requestId, entry] of pendingOffscreenRequests.entries()) {
+    pendingOffscreenRequests.delete(requestId);
+    entry.reject(new Error(message));
   }
+}
+
+function attachOffscreenPort(port) {
+  offscreenPort = port;
+
+  port.onMessage.addListener((message) => {
+    const requestId = message?.requestId;
+    if (!requestId) return;
+
+    const pending = pendingOffscreenRequests.get(requestId);
+    if (!pending) return;
+
+    pendingOffscreenRequests.delete(requestId);
+    pending.resolve(message);
+  });
+
+  port.onDisconnect.addListener(() => {
+    if (offscreenPort === port) {
+      offscreenPort = null;
+    }
+    rejectPendingOffscreenRequests("Local Kokoro runtime disconnected");
+  });
+}
+
+async function ensureOffscreenPort() {
+  if (offscreenPort) return offscreenPort;
+  if (connectingOffscreenPort) return connectingOffscreenPort;
+
+  connectingOffscreenPort = (async () => {
+    await ensureOffscreenDocument();
+    const port = chrome.runtime.connect({ name: OFFSCREEN_PORT_NAME });
+    attachOffscreenPort(port);
+    return port;
+  })();
+
+  try {
+    return await connectingOffscreenPort;
+  } finally {
+    connectingOffscreenPort = null;
+  }
+}
+
+async function requestOffscreen(type, data = {}) {
+  const port = await ensureOffscreenPort();
+
+  return new Promise((resolve, reject) => {
+    const requestId = nextOffscreenRequestId++;
+    pendingOffscreenRequests.set(requestId, { resolve, reject });
+
+    try {
+      port.postMessage({ requestId, type, data });
+    } catch (error) {
+      pendingOffscreenRequests.delete(requestId);
+      reject(error);
+    }
+  });
 }
 
 chrome.commands.onCommand.addListener(async (command) => {
@@ -62,60 +153,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
-  if (msg.action === "checkServer") {
-    (async () => {
-      const url = msg.serverUrl || DEFAULT_SETTINGS.serverUrl;
-      try {
-        const resp = await fetchWithTimeout(`${url}/health`, {}, 4000);
-        if (!resp.ok) {
-          sendResponse({ connected: false, error: await parseErrorResponse(resp) });
-          return;
-        }
-        const data = await resp.json();
-        sendResponse({ connected: true, ...data });
-      } catch (err) {
-        sendResponse({ connected: false, error: err?.message || "Health check failed" });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.action === "synthesize") {
-    (async () => {
-      const url = msg.serverUrl || DEFAULT_SETTINGS.serverUrl;
-      const text = (msg.text || "").trim();
-      const voice = msg.voice || DEFAULT_SETTINGS.voice;
-
-      if (!text) {
-        sendResponse({ ok: false, error: "Empty text" });
-        return;
-      }
-
-      try {
-        const resp = await fetchWithTimeout(
-          `${url}/synthesize`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, voice }),
-          },
-          45000
-        );
-
-        if (!resp.ok) {
-          sendResponse({ ok: false, error: await parseErrorResponse(resp) });
-          return;
-        }
-
-        const data = await resp.json();
-        sendResponse({ ok: true, data });
-      } catch (err) {
+  if (msg.action === "ttsRequest") {
+    requestOffscreen(msg.type, msg.data || {})
+      .then((response) => {
+        sendResponse(response || { ok: false, error: "No response from local Kokoro runtime" });
+      })
+      .catch((error) => {
         sendResponse({
           ok: false,
-          error: err?.name === "AbortError" ? "TTS request timed out" : (err?.message || "TTS request failed"),
+          error: error?.message || String(error) || "Local Kokoro request failed",
         });
-      }
-    })();
+      });
     return true;
   }
 });

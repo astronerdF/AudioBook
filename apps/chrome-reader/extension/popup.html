@@ -8,7 +8,7 @@
   <div class="cr-popup">
     <div class="cr-header">
       <span class="cr-title">Chrome Reader</span>
-      <span class="cr-status" id="server-status" title="TTS Server status"></span>
+      <span class="cr-status" id="engine-status" title="Local Kokoro status"></span>
     </div>
 
     <!-- Transport Controls -->
@@ -30,6 +30,9 @@
 
     <div class="cr-progress-row">
       <span id="progress-text" class="cr-progress-label">Ready</span>
+    </div>
+    <div class="cr-progress-row">
+      <span id="engine-text" class="cr-engine-label">Local Kokoro loads on first play</span>
     </div>
 
     <div class="cr-divider"></div>
@@ -83,12 +86,6 @@
     </div>
 
     <div class="cr-divider"></div>
-
-    <!-- Server -->
-    <div class="cr-section cr-server-section">
-      <label class="cr-label">Server</label>
-      <input type="text" id="input-server" class="cr-input" value="http://localhost:8008" spellcheck="false">
-    </div>
   </div>
 
   <script src="popup.js"></script>

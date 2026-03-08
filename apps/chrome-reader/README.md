@@ -9,8 +9,10 @@ Chrome extension that reads any webpage aloud using Kokoro TTS with real-time wo
 - **Word-level highlighting** - Words light up in sync as they're spoken
 - **Auto-scroll** - Page scrolls to follow the reading position
 - **5 Kokoro voices** - 3 American (Heart, Bella, Fenrir) + 2 British (Emma, Fable)
+- **Fully local inference** - No localhost server, no external TTS dependency
+- **Auto backend selection** - Uses WebGPU when available, falls back to CPU/WASM automatically
 - **Speed control** - 0.5x to 3x playback speed
-- **Pre-buffering** - Fetches upcoming paragraphs ahead of time for gapless playback
+- **Chunked synthesis** - Generates sentence-by-sentence and only prefetches nearby paragraphs
 - **Keyboard shortcuts** - Alt+R to play/pause, Alt+S to stop
 - **Floating controls** - Minimal in-page control bar while reading
 - **Skip code blocks** - Optionally skip `<pre>` and `<code>` elements
@@ -19,13 +21,18 @@ Chrome extension that reads any webpage aloud using Kokoro TTS with real-time wo
 ## Architecture
 
 ```
-Webpage ──> Content Script (extractor.js + highlighter.js + player.js + content.js)
+Webpage ──> Content Script (extractor.js + highlighter.js + tts-engine.js + player.js + content.js)
               │
-              │ fetch (sentences, one at a time, pre-buffered)
+              │ sentence-sized jobs
               ▼
-            TTS Server (FastAPI + Kokoro 82M, port 8008)
+            Module Worker (tts-worker.mjs)
               │
-              │ returns WAV audio + word-level timing estimates
+              │ packaged Kokoro ONNX + voice embeddings
+              │ packaged HeadTTS English G2P + ONNX Runtime Web
+              ▼
+            WebGPU (preferred) or WASM/CPU fallback
+              │
+              │ returns WAV audio + local word timing estimates
               ▼
             Content Script plays audio via Audio element
               │
@@ -36,24 +43,7 @@ Webpage ──> Content Script (extractor.js + highlighter.js + player.js + cont
 
 ## Setup
 
-### 1. Start the TTS Server
-
-Requires the same Python venv as epubToAudioBook (torch + kokoro already installed):
-
-```bash
-cd apps/chrome-reader/server
-./start_server.sh
-```
-
-Or manually:
-```bash
-export KOKORO_DEVICE=cuda:0  # or cpu
-python tts_server.py
-```
-
-Server runs on port 8008 by default. Set `PORT` env var to change.
-
-### 2. Load the Chrome Extension
+### 1. Load the Chrome Extension
 
 1. Open Chrome and go to `chrome://extensions/`
 2. Enable **Developer mode** (top right toggle)
@@ -61,13 +51,15 @@ Server runs on port 8008 by default. Set `PORT` env var to change.
 4. Select the `apps/chrome-reader/extension/` directory
 5. The Chrome Reader icon appears in the toolbar
 
-### 3. Use It
+### 2. Use It
 
 1. Navigate to any webpage
 2. Click the Chrome Reader icon in the toolbar
 3. Choose a read mode (Smart is default)
 4. Click the play button
 5. The page starts reading aloud with word highlighting
+
+The extension loads the packaged model lazily on first playback. On machines with WebGPU support it uses the GPU; otherwise it falls back to CPU/WASM automatically.
 
 ## Read Modes
 
@@ -89,15 +81,6 @@ The extractor handles various page types:
 - **Blogs/CMS** - Scores by paragraph density and text-to-HTML ratio
 - **Generic pages** - Falls back to Readability-style scoring (text density, link density, class/ID hints)
 
-## Server API
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Server status + model info |
-| `/voices` | GET | List available Kokoro voices |
-| `/synthesize` | POST | Synthesize text, returns `{audio_b64, words, duration_ms}` |
-| `/synthesize/stream` | POST | SSE stream: synthesizes text sentence-by-sentence |
-
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -110,12 +93,17 @@ Configurable in `chrome://extensions/shortcuts`.
 ## Configuration
 
 All settings persist in Chrome's local storage:
-- **Server URL** - Default `http://localhost:8008`
 - **Voice** - Default `af_heart` (Heart, female, American)
 - **Speed** - Default 1.0x (range 0.5-3.0)
 - **Skip code** - Skip `<pre>` blocks (default: on)
 - **Auto-scroll** - Scroll page to follow reading (default: on)
 - **Highlight** - Show word highlight overlay (default: on)
+
+## Notes
+
+- The packaged extension now runs without the Python server in `apps/chrome-reader/server/`.
+- The legacy server code is still in the repo, but it is no longer required for extension playback.
+- Sentence-sized synthesis keeps startup latency low and avoids generating audio far ahead on long pages.
 
 ## Regenerating Icons
 

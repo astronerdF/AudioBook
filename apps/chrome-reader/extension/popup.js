@@ -12,7 +12,8 @@
   const iconPlay = document.getElementById("icon-play");
   const iconPause = document.getElementById("icon-pause");
   const progressText = document.getElementById("progress-text");
-  const serverStatus = document.getElementById("server-status");
+  const engineStatus = document.getElementById("engine-status");
+  const engineText = document.getElementById("engine-text");
   const selMode = document.getElementById("sel-mode");
   const selVoice = document.getElementById("sel-voice");
   const sliderSpeed = document.getElementById("slider-speed");
@@ -20,7 +21,6 @@
   const optSkipCode = document.getElementById("opt-skip-code");
   const optAutoScroll = document.getElementById("opt-auto-scroll");
   const optHighlight = document.getElementById("opt-highlight");
-  const inputServer = document.getElementById("input-server");
 
   let currentTab = null;
   let pollInterval = null;
@@ -42,7 +42,7 @@
       try {
         await chrome.scripting.executeScript({
           target: { tabId: currentTab.id },
-          files: ["extractor.js", "highlighter.js", "player.js", "content.js"],
+          files: ["extractor.js", "highlighter.js", "tts-engine.js", "player.js", "content.js"],
         });
         await chrome.scripting.insertCSS({
           target: { tabId: currentTab.id },
@@ -77,7 +77,6 @@
   // --- Save settings ---
   async function saveSettings() {
     const settings = {
-      serverUrl: inputServer.value.trim() || "http://localhost:8008",
       voice: selVoice.value,
       speed: parseFloat(sliderSpeed.value),
       mode: selMode.value,
@@ -89,25 +88,43 @@
     return settings;
   }
 
-  // --- Check server health ---
-  async function checkServer() {
-    const url = inputServer.value.trim() || "http://localhost:8008";
-    chrome.runtime.sendMessage(
-      { action: "checkServer", serverUrl: url },
-      (resp) => {
-        if (resp?.connected) {
-          serverStatus.className = "cr-status connected";
-          serverStatus.title = `Connected (${resp.device || "unknown device"})`;
-        } else {
-          serverStatus.className = "cr-status disconnected";
-          serverStatus.title = "Cannot connect to TTS server";
-        }
-      }
-    );
+  function updateEngineStatus(engine) {
+    if (!engine) {
+      engineStatus.className = "cr-status";
+      engineStatus.title = "Local Kokoro loads on first play";
+      engineText.textContent = "Local Kokoro loads on first play";
+      return;
+    }
+
+    if (engine.status === "ready" && engine.ready) {
+      engineStatus.className = "cr-status connected";
+      engineStatus.title = `Running on ${engine.deviceLabel || "local inference"}`;
+      engineText.textContent = engine.message || `Using ${engine.deviceLabel || "local inference"}`;
+      return;
+    }
+
+    if (engine.status === "loading") {
+      engineStatus.className = "cr-status loading";
+      engineStatus.title = engine.message || "Preparing local Kokoro";
+      engineText.textContent = engine.message || "Preparing local Kokoro";
+      return;
+    }
+
+    if (engine.status === "error") {
+      engineStatus.className = "cr-status disconnected";
+      engineStatus.title = engine.error || engine.message || "Local Kokoro failed to initialize";
+      engineText.textContent = engine.error || engine.message || "Local Kokoro failed to initialize";
+      return;
+    }
+
+    engineStatus.className = "cr-status";
+    engineStatus.title = engine.message || "Local Kokoro loads on first play";
+    engineText.textContent = engine.message || "Local Kokoro loads on first play";
   }
 
   // --- Update UI from state ---
   function updateUI(state) {
+    updateEngineStatus(state?.engine);
     if (!state) return;
 
     if (state.isPlaying) {
@@ -149,8 +166,8 @@
     if (state?.isPlaying) {
       sendToContent({ action: "toggle" });
     } else {
-      progressText.textContent = "Starting...";
-      const settings = await saveSettings();
+      progressText.textContent = "Starting local Kokoro...";
+      await saveSettings();
       sendToContent({
         action: "start",
         mode: selMode.value,
@@ -195,16 +212,6 @@
   // --- Mode change ---
   selMode.addEventListener("change", saveSettings);
 
-  // --- Server URL change ---
-  let serverDebounce;
-  inputServer.addEventListener("input", () => {
-    clearTimeout(serverDebounce);
-    serverDebounce = setTimeout(() => {
-      saveSettings();
-      checkServer();
-    }, 500);
-  });
-
   // --- Listen for state updates from content script ---
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "stateUpdate") {
@@ -224,14 +231,10 @@
   optSkipCode.checked = settings.skipCode !== false;
   optAutoScroll.checked = settings.autoScroll !== false;
   optHighlight.checked = settings.highlightWords !== false;
-  inputServer.value = settings.serverUrl || "http://localhost:8008";
 
   // Get initial state from content script
   const state = await sendToContent({ action: "getState" });
   updateUI(state);
-
-  // Check server connection
-  checkServer();
 
   // Start polling for state updates
   startPolling();

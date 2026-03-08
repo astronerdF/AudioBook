@@ -43,6 +43,11 @@ body {
   box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
 }
 
+.cr-status.loading {
+  background: #ffd54f;
+  box-shadow: 0 0 6px rgba(255, 213, 79, 0.45);
+}
+
 .cr-status.disconnected {
   background: #f44336;
   box-shadow: 0 0 6px rgba(244, 67, 54, 0.4);
@@ -95,6 +100,11 @@ body {
 .cr-progress-label {
   font-size: 11px;
   color: #888;
+}
+
+.cr-engine-label {
+  font-size: 11px;
+  color: #70789a;
 }
 
 /* Divider */
@@ -180,25 +190,4 @@ body {
 .cr-checkbox input[type="checkbox"] {
   accent-color: #ffd54f;
   cursor: pointer;
-}
-
-/* Server input */
-.cr-input {
-  width: 100%;
-  padding: 5px 8px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  color: #e0e0e0;
-  font-size: 11px;
-  font-family: monospace;
-  outline: none;
-}
-
-.cr-input:focus {
-  border-color: rgba(255, 213, 79, 0.4);
-}
-
-.cr-server-section {
-  margin-bottom: 0;
 }

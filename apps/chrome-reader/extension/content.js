@@ -18,7 +18,6 @@ ChromeReader.Controller = (() => {
     return new Promise((resolve) => {
       chrome.runtime.sendMessage({ action: "getSettings" }, (s) => {
         settings = s || {
-          serverUrl: "http://localhost:8008",
           voice: "af_heart",
           speed: 1.0,
           mode: "smart",
@@ -104,10 +103,7 @@ ChromeReader.Controller = (() => {
       return;
     }
 
-    showStatus(
-      `Found ${paragraphs.length} paragraphs. Connecting to ${settings.serverUrl}...`,
-      "loading"
-    );
+    showStatus(`Found ${paragraphs.length} paragraphs. Preparing local Kokoro...`, "loading");
 
     ChromeReader.Highlighter.setEnabled(settings.highlightWords !== false);
     ChromeReader.Highlighter.setAutoScroll(settings.autoScroll !== false);
@@ -127,7 +123,9 @@ ChromeReader.Controller = (() => {
         chrome.runtime.sendMessage({ action: "stateUpdate", state });
       } catch (_) {}
 
-      if (state.isPlaying && !state.isPaused) {
+      if (state.isPlaying && state.engine?.status === "loading") {
+        showStatus(state.engine.message || "Preparing local Kokoro...", "loading");
+      } else if (state.isPlaying && !state.isPaused) {
         showStatus(
           `Reading paragraph ${state.currentParaIdx + 1} / ${state.totalParagraphs}`,
           "success"
@@ -145,7 +143,6 @@ ChromeReader.Controller = (() => {
     showControls();
 
     ChromeReader.Player.start(paragraphs, {
-      serverUrl: settings.serverUrl,
       voice: settings.voice,
       speed: settings.speed,
     });

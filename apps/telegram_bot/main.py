@@ -30,7 +30,7 @@ from datetime import datetime
 # Configuration
 # ──────────────────────────────────────────────
 
-env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
 TOKEN = None
 ABS_API_KEY = None
 if os.path.exists(env_file):
@@ -54,7 +54,7 @@ if not ABS_API_KEY:
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 BOOKS_DIR = os.path.join(PROJECT_ROOT, "data", "books")
 LOGS_DIR = os.path.join(PROJECT_ROOT, "data", "logs")
 os.makedirs(BOOKS_DIR, exist_ok=True)
@@ -74,7 +74,7 @@ PYTHON_BIN = os.environ.get(
     "AUDIOBOOK_PYTHON",
     "/lhome/ahmadfn/.pyenv/versions/3.11.9/envs/Audio/bin/python",
 )
-EPUB_APP_DIR = os.path.join(SCRIPT_DIR, "epubToAudioBook")
+EPUB_APP_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "epubToAudioBook")
 
 # Libgen mirrors (from the libgen-downloader config.v3.json)
 LIBGEN_MIRRORS = ["libgen.li", "libgen.vg", "libgen.gl"]

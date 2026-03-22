@@ -20,8 +20,8 @@ echo "$(date): Bot keepalive wrapper starting..." >> "$LOG_FILE"
 
 while true; do
     echo "$(date): Starting telegram_bot.py ..." >> "$LOG_FILE"
-    cd "$APP_DIR"
-    "$PYTHON" telegram_bot.py >> "$LOG_FILE" 2>&1
+    cd "$APP_DIR/telegram_bot"
+    "$PYTHON" main.py >> "$LOG_FILE" 2>&1
     EXIT_CODE=$?
     echo "$(date): Bot exited with code $EXIT_CODE. Restarting in 5s..." >> "$LOG_FILE"
     sleep 5

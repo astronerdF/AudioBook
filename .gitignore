@@ -39,3 +39,11 @@ out/
 # Model weights & caches
 *.pth
 .cache/
+
+# Android and large files
+*.apk
+*.hprof
+*.onnx
+apps/KokoroAndroid/app/build/
+apps/KokoroAndroid/.gradle/
+apps/KokoroAndroid/build/

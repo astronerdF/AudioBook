@@ -8,7 +8,7 @@
   <div class="cr-popup">
     <div class="cr-header">
       <span class="cr-title">Chrome Reader</span>
-      <span class="cr-status" id="engine-status" title="Local Kokoro status"></span>
+      <span class="cr-status" id="engine-status" title="Kokoro status"></span>
     </div>
 
     <!-- Transport Controls -->
@@ -32,7 +32,7 @@
       <span id="progress-text" class="cr-progress-label">Ready</span>
     </div>
     <div class="cr-progress-row">
-      <span id="engine-text" class="cr-engine-label">Local Kokoro loads on first play</span>
+      <span id="engine-text" class="cr-engine-label">On-device Kokoro loads on first play</span>
     </div>
 
     <div class="cr-divider"></div>
@@ -47,6 +47,27 @@
         <option value="full">Full page</option>
         <option value="headings">Headings only</option>
       </select>
+    </div>
+
+    <div class="cr-section">
+      <label class="cr-label">Engine</label>
+      <select id="sel-transport" class="cr-select">
+        <option value="local">On-device Kokoro</option>
+        <option value="server">Localhost server</option>
+      </select>
+    </div>
+
+    <div class="cr-section" id="server-url-section">
+      <label class="cr-label">Server URL</label>
+      <input
+        type="text"
+        id="input-server-url"
+        class="cr-input"
+        value="http://localhost:8008"
+        placeholder="http://localhost:8008"
+        spellcheck="false"
+      >
+      <p class="cr-help">Supports `http://localhost:8008` or `http://127.0.0.1:8008`.</p>
     </div>
 
     <!-- Voice -->

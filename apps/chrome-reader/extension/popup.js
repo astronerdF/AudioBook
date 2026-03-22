@@ -15,6 +15,9 @@
   const engineStatus = document.getElementById("engine-status");
   const engineText = document.getElementById("engine-text");
   const selMode = document.getElementById("sel-mode");
+  const selTransport = document.getElementById("sel-transport");
+  const serverUrlSection = document.getElementById("server-url-section");
+  const inputServerUrl = document.getElementById("input-server-url");
   const selVoice = document.getElementById("sel-voice");
   const sliderSpeed = document.getElementById("slider-speed");
   const speedValue = document.getElementById("speed-value");
@@ -24,6 +27,7 @@
 
   let currentTab = null;
   let pollInterval = null;
+  let currentSettings = null;
 
   // --- Get active tab ---
   async function getTab() {
@@ -74,52 +78,81 @@
     });
   }
 
+  function normalizeServerUrl(serverUrl) {
+    return (serverUrl || "http://localhost:8008").trim().replace(/\/+$/, "");
+  }
+
+  function applyTransportUi(transport = selTransport.value) {
+    const isServer = transport === "server";
+    serverUrlSection.style.display = isServer ? "" : "none";
+  }
+
   // --- Save settings ---
   async function saveSettings() {
     const settings = {
       voice: selVoice.value,
       speed: parseFloat(sliderSpeed.value),
       mode: selMode.value,
+      transport: selTransport.value,
+      serverUrl: normalizeServerUrl(inputServerUrl.value),
       skipCode: optSkipCode.checked,
       autoScroll: optAutoScroll.checked,
       highlightWords: optHighlight.checked,
     };
-    chrome.runtime.sendMessage({ action: "saveSettings", settings });
-    return settings;
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: "saveSettings", settings }, (response) => {
+        currentSettings = response?.settings || settings;
+        resolve(currentSettings);
+      });
+    });
   }
 
   function updateEngineStatus(engine) {
+    const transport = engine?.transport || currentSettings?.transport || selTransport.value || "local";
+    const serverUrl =
+      engine?.serverUrl || currentSettings?.serverUrl || normalizeServerUrl(inputServerUrl.value);
+
     if (!engine) {
       engineStatus.className = "cr-status";
-      engineStatus.title = "Local Kokoro loads on first play";
-      engineText.textContent = "Local Kokoro loads on first play";
+      if (transport === "server") {
+        engineStatus.title = `Localhost server at ${serverUrl}`;
+        engineText.textContent = `Localhost server mode: ${serverUrl}`;
+      } else {
+        engineStatus.title = "On-device Kokoro loads on first play";
+        engineText.textContent = "On-device Kokoro loads on first play";
+      }
       return;
     }
 
     if (engine.status === "ready" && engine.ready) {
       engineStatus.className = "cr-status connected";
-      engineStatus.title = `Running on ${engine.deviceLabel || "local inference"}`;
-      engineText.textContent = engine.message || `Using ${engine.deviceLabel || "local inference"}`;
+      engineStatus.title = engine.message || `Running on ${engine.deviceLabel || "Kokoro"}`;
+      engineText.textContent = engine.message || `Using ${engine.deviceLabel || "Kokoro"}`;
       return;
     }
 
     if (engine.status === "loading") {
       engineStatus.className = "cr-status loading";
-      engineStatus.title = engine.message || "Preparing local Kokoro";
-      engineText.textContent = engine.message || "Preparing local Kokoro";
+      engineStatus.title = engine.message || "Preparing Kokoro";
+      engineText.textContent = engine.message || "Preparing Kokoro";
       return;
     }
 
     if (engine.status === "error") {
       engineStatus.className = "cr-status disconnected";
-      engineStatus.title = engine.error || engine.message || "Local Kokoro failed to initialize";
-      engineText.textContent = engine.error || engine.message || "Local Kokoro failed to initialize";
+      engineStatus.title = engine.error || engine.message || "Kokoro failed to initialize";
+      engineText.textContent = engine.error || engine.message || "Kokoro failed to initialize";
       return;
     }
 
     engineStatus.className = "cr-status";
-    engineStatus.title = engine.message || "Local Kokoro loads on first play";
-    engineText.textContent = engine.message || "Local Kokoro loads on first play";
+    if (transport === "server") {
+      engineStatus.title = engine.message || `Localhost server at ${serverUrl}`;
+      engineText.textContent = engine.message || `Localhost server mode: ${serverUrl}`;
+    } else {
+      engineStatus.title = engine.message || "On-device Kokoro loads on first play";
+      engineText.textContent = engine.message || "On-device Kokoro loads on first play";
+    }
   }
 
   // --- Update UI from state ---
@@ -166,8 +199,11 @@
     if (state?.isPlaying) {
       sendToContent({ action: "toggle" });
     } else {
-      progressText.textContent = "Starting local Kokoro...";
-      await saveSettings();
+      const settings = await saveSettings();
+      progressText.textContent =
+        settings.transport === "server"
+          ? "Connecting to localhost Kokoro..."
+          : "Starting on-device Kokoro...";
       sendToContent({
         action: "start",
         mode: selMode.value,
@@ -211,6 +247,30 @@
 
   // --- Mode change ---
   selMode.addEventListener("change", saveSettings);
+  selTransport.addEventListener("change", async () => {
+    applyTransportUi();
+    const settings = await saveSettings();
+    updateEngineStatus(null);
+    sendToContent({
+      action: "updateSettings",
+      settings: {
+        transport: settings.transport,
+        serverUrl: settings.serverUrl,
+      },
+    });
+  });
+  inputServerUrl.addEventListener("change", async () => {
+    inputServerUrl.value = normalizeServerUrl(inputServerUrl.value);
+    const settings = await saveSettings();
+    updateEngineStatus(null);
+    sendToContent({
+      action: "updateSettings",
+      settings: {
+        transport: settings.transport,
+        serverUrl: settings.serverUrl,
+      },
+    });
+  });
 
   // --- Listen for state updates from content script ---
   chrome.runtime.onMessage.addListener((msg) => {
@@ -222,15 +282,19 @@
   // --- Initialize ---
   currentTab = await getTab();
   const settings = await loadSettings();
+  currentSettings = settings;
 
   // Apply settings to UI
   selMode.value = settings.mode || "smart";
+  selTransport.value = settings.transport || "local";
+  inputServerUrl.value = normalizeServerUrl(settings.serverUrl);
   selVoice.value = settings.voice || "af_heart";
   sliderSpeed.value = settings.speed || 1.0;
   speedValue.textContent = `${parseFloat(sliderSpeed.value).toFixed(parseFloat(sliderSpeed.value) % 1 === 0 ? 0 : 1)}x`;
   optSkipCode.checked = settings.skipCode !== false;
   optAutoScroll.checked = settings.autoScroll !== false;
   optHighlight.checked = settings.highlightWords !== false;
+  applyTransportUi();
 
   // Get initial state from content script
   const state = await sendToContent({ action: "getState" });

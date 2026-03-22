@@ -149,6 +149,28 @@ body {
   color: #e0e0e0;
 }
 
+.cr-input {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 12px;
+  outline: none;
+}
+
+.cr-input:focus {
+  border-color: rgba(255, 213, 79, 0.4);
+}
+
+.cr-help {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #70789a;
+}
+
 /* Slider */
 .cr-slider {
   width: 100%;

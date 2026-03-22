@@ -12,16 +12,10 @@ const ORT_ENTRY_PATHS = {
   wasm: "./vendor/onnxruntime/ort.wasm.min.mjs",
   webgpu: "./vendor/onnxruntime/ort.webgpu.min.mjs",
 };
-const ORT_WASM_PATHS = {
-  wasm: {
-    mjs: new URL("./vendor/onnxruntime/ort-wasm-simd-threaded.mjs", import.meta.url).href,
-    wasm: new URL("./vendor/onnxruntime/ort-wasm-simd-threaded.wasm", import.meta.url).href,
-  },
-  webgpu: {
-    mjs: new URL("./vendor/onnxruntime/ort-wasm-simd-threaded.jsep.mjs", import.meta.url).href,
-    wasm: new URL("./vendor/onnxruntime/ort-wasm-simd-threaded.jsep.wasm", import.meta.url).href,
-  },
-};
+// Directory prefix for ONNX Runtime WASM files.
+// ort.env.wasm.wasmPaths accepts a URL prefix string; ONNX Runtime appends the
+// expected filename (e.g. "ort-wasm-simd-threaded.wasm") automatically.
+const ORT_WASM_DIR = new URL("./vendor/onnxruntime/", import.meta.url).href;
 const DEFAULT_STATUS = {
   ready: false,
   status: "idle",
@@ -304,7 +298,7 @@ async function loadOrt(provider) {
 }
 
 function configureOrt(ort, provider) {
-  ort.env.wasm.wasmPaths = ORT_WASM_PATHS[provider];
+  ort.env.wasm.wasmPaths = ORT_WASM_DIR;
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.proxy = false;
   ort.env.wasm.initTimeout = 30000;

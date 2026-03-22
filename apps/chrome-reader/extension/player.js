@@ -1,6 +1,6 @@
 /**
  * Chrome Reader - Audio Player
- * Manages local Kokoro playback with sentence-level synthesis and nearby prefetching.
+ * Manages Kokoro playback with sentence-level synthesis and nearby prefetching.
  */
 
 window.ChromeReader = window.ChromeReader || {};
@@ -12,7 +12,9 @@ ChromeReader.Player = (() => {
   let paragraphs = [];
   let currentParaIdx = 0;
   let currentSentIdx = 0;
-  let currentAudio = null;
+  let currentSource = null;   // AudioBufferSourceNode
+  let currentAudio = null;    // kept for skipForward compat
+  let audioCtx = null;
   let isPlaying = false;
   let isPaused = false;
   let animFrameId = null;
@@ -149,7 +151,7 @@ ChromeReader.Player = (() => {
 
         const sentence = sentences[sentIdx];
         emitStatus(
-          `Synthesizing paragraph ${paraIdx + 1}/${paragraphs.length}, sentence ${sentIdx + 1}/${sentences.length}...`
+        `Synthesizing paragraph ${paraIdx + 1}/${paragraphs.length}, sentence ${sentIdx + 1}/${sentences.length}...`
         );
 
         let result = null;
@@ -205,13 +207,37 @@ ChromeReader.Player = (() => {
     }
   }
 
-  function playChunk(audioBuffer, words, textNodes, token) {
+  function getAudioCtx() {
+    if (!audioCtx || audioCtx.state === "closed") {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioCtx;
+  }
+
+  async function playChunk(audioBuffer, words, textNodes, token) {
+    const ctx = getAudioCtx();
+
+    // Resume AudioContext if suspended (autoplay policy unlock).
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+
     return new Promise((resolve, reject) => {
       const blob = new Blob([audioBuffer], { type: "audio/wav" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
 
+      // Preserve pitch when changing playback speed.
+      audio.preservesPitch = true;
+      audio.mozPreservePitch = true;
       audio.playbackRate = speed;
+
+      // Route through the AudioContext — this bypasses the autoplay restriction
+      // that blocks audio.play() in content scripts driven by extension messages.
+      const mediaSource = ctx.createMediaElementSource(audio);
+      mediaSource.connect(ctx.destination);
+
+      currentSource = mediaSource;
       currentAudio = audio;
       let currentWordIdx = -1;
 
@@ -219,11 +245,13 @@ ChromeReader.Player = (() => {
         cancelAnimationFrame(animFrameId);
         animFrameId = null;
         URL.revokeObjectURL(url);
+        currentSource = null;
         currentAudio = null;
       }
 
       function tick() {
         if (!isPlaying || isPaused || token !== runToken || audio.paused) return;
+        // audio.currentTime reflects position in the audio file, accounting for playbackRate.
         const timeMs = audio.currentTime * 1000;
 
         let newIdx = -1;
@@ -312,8 +340,8 @@ ChromeReader.Player = (() => {
       }
 
       if (!paragraphPlayed && task.lastError && !anyPlayed) {
-        if (onError) {
-          onError(`Local Kokoro synthesis failed: ${task.lastError}`);
+          if (onError) {
+          onError(`Kokoro synthesis failed: ${task.lastError}`);
         }
         stop();
         return;
@@ -338,6 +366,11 @@ ChromeReader.Player = (() => {
 
     if (settings.voice) voice = settings.voice;
     if (settings.speed) speed = settings.speed;
+    ChromeReader.TtsEngine.configure({
+      transport: settings.transport,
+      serverUrl: settings.serverUrl,
+    });
+    engineStatus = ChromeReader.TtsEngine.getStatus();
 
     paragraphs = extractedParagraphs || [];
     currentParaIdx = 0;
@@ -354,7 +387,7 @@ ChromeReader.Player = (() => {
 
     ChromeReader.Highlighter.init();
     emitState();
-    emitStatus("Preparing local Kokoro engine...");
+    emitStatus(engineStatus.message || "Preparing Kokoro engine...");
 
     const token = runToken;
     try {
@@ -362,7 +395,7 @@ ChromeReader.Player = (() => {
     } catch (error) {
       if (isPlaying && token === runToken) {
         if (onError) {
-          onError(`Local Kokoro engine failed: ${error.message}`);
+          onError(`Kokoro engine failed: ${error.message}`);
         }
         stop();
       }
@@ -385,7 +418,7 @@ ChromeReader.Player = (() => {
   function resume() {
     if (!isPlaying) return;
     isPaused = false;
-    if (currentAudio) currentAudio.play();
+    if (currentAudio) currentAudio.play().catch(() => {});
     emitState();
   }
 
@@ -405,6 +438,11 @@ ChromeReader.Player = (() => {
     if (currentAudio) {
       currentAudio.pause();
       currentAudio = null;
+    }
+    currentSource = null;
+    if (audioCtx) {
+      audioCtx.close().catch(() => {});
+      audioCtx = null;
     }
     if (animFrameId) {
       cancelAnimationFrame(animFrameId);
@@ -440,6 +478,7 @@ ChromeReader.Player = (() => {
       currentAudio.pause();
       currentAudio = null;
     }
+    currentSource = null;
 
     runToken++;
     triggerPrefetch(runToken);
@@ -454,6 +493,15 @@ ChromeReader.Player = (() => {
 
   function setVoice(newVoice) {
     voice = newVoice;
+    emitState();
+  }
+
+  function updateEngineSettings(settings = {}) {
+    ChromeReader.TtsEngine.configure({
+      transport: settings.transport,
+      serverUrl: settings.serverUrl,
+    });
+    engineStatus = ChromeReader.TtsEngine.getStatus();
     emitState();
   }
 
@@ -479,6 +527,7 @@ ChromeReader.Player = (() => {
     skipBack,
     setSpeed,
     setVoice,
+    updateEngineSettings,
     setOnStateChange,
     setOnError,
     setOnStatusUpdate,

@@ -21,6 +21,8 @@ ChromeReader.Controller = (() => {
           voice: "af_heart",
           speed: 1.0,
           mode: "smart",
+          transport: "local",
+          serverUrl: "http://localhost:8008",
           skipCode: true,
           autoScroll: true,
           highlightWords: true,
@@ -103,7 +105,12 @@ ChromeReader.Controller = (() => {
       return;
     }
 
-    showStatus(`Found ${paragraphs.length} paragraphs. Preparing local Kokoro...`, "loading");
+    showStatus(
+      settings.transport === "server"
+        ? `Found ${paragraphs.length} paragraphs. Connecting to localhost Kokoro server...`
+        : `Found ${paragraphs.length} paragraphs. Preparing on-device Kokoro...`,
+      "loading"
+    );
 
     ChromeReader.Highlighter.setEnabled(settings.highlightWords !== false);
     ChromeReader.Highlighter.setAutoScroll(settings.autoScroll !== false);
@@ -124,7 +131,7 @@ ChromeReader.Controller = (() => {
       } catch (_) {}
 
       if (state.isPlaying && state.engine?.status === "loading") {
-        showStatus(state.engine.message || "Preparing local Kokoro...", "loading");
+        showStatus(state.engine.message || "Preparing Kokoro...", "loading");
       } else if (state.isPlaying && !state.isPaused) {
         showStatus(
           `Reading paragraph ${state.currentParaIdx + 1} / ${state.totalParagraphs}`,
@@ -145,6 +152,8 @@ ChromeReader.Controller = (() => {
     ChromeReader.Player.start(paragraphs, {
       voice: settings.voice,
       speed: settings.speed,
+      transport: settings.transport,
+      serverUrl: settings.serverUrl,
     });
   }
 
@@ -208,6 +217,15 @@ ChromeReader.Controller = (() => {
     if (initialized) return;
     initialized = true;
 
+    loadSettings()
+      .then((loadedSettings) => {
+        ChromeReader.Player.updateEngineSettings({
+          transport: loadedSettings.transport,
+          serverUrl: loadedSettings.serverUrl,
+        });
+      })
+      .catch(() => {});
+
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       switch (msg.action) {
         case "start":
@@ -266,7 +284,13 @@ ChromeReader.Controller = (() => {
           return true;
 
         case "updateSettings":
-          settings = { ...settings, ...msg.settings };
+          settings = { ...(settings || {}), ...msg.settings };
+          if (msg.settings.transport !== undefined || msg.settings.serverUrl !== undefined) {
+            ChromeReader.Player.updateEngineSettings({
+              transport: settings.transport,
+              serverUrl: settings.serverUrl,
+            });
+          }
           if (msg.settings.highlightWords !== undefined) {
             ChromeReader.Highlighter.setEnabled(msg.settings.highlightWords);
           }

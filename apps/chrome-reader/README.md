@@ -9,7 +9,7 @@ Chrome extension that reads any webpage aloud using Kokoro TTS with real-time wo
 - **Word-level highlighting** - Words light up in sync as they're spoken
 - **Auto-scroll** - Page scrolls to follow the reading position
 - **5 Kokoro voices** - 3 American (Heart, Bella, Fenrir) + 2 British (Emma, Fable)
-- **Fully local inference** - No localhost server, no external TTS dependency
+- **Selectable inference path** - Run fully on-device or switch back to a localhost Kokoro server
 - **Auto backend selection** - Uses WebGPU when available, falls back to CPU/WASM automatically
 - **Speed control** - 0.5x to 3x playback speed
 - **Chunked synthesis** - Generates sentence-by-sentence and only prefetches nearby paragraphs
@@ -59,7 +59,10 @@ Webpage ──> Content Script (extractor.js + highlighter.js + tts-engine.js + 
 4. Click the play button
 5. The page starts reading aloud with word highlighting
 
-The extension loads the packaged model lazily on first playback. On machines with WebGPU support it uses the GPU; otherwise it falls back to CPU/WASM automatically.
+The extension can run in two modes:
+
+- **On-device** - Loads the packaged model lazily on first playback. On machines with WebGPU support it uses the GPU; otherwise it falls back to CPU/WASM automatically.
+- **Localhost server** - Sends synthesis requests to a Kokoro server at `http://localhost:8008` or `http://127.0.0.1:8008`.
 
 ## Read Modes
 
@@ -101,8 +104,8 @@ All settings persist in Chrome's local storage:
 
 ## Notes
 
-- The packaged extension now runs without the Python server in `apps/chrome-reader/server/`.
-- The legacy server code is still in the repo, but it is no longer required for extension playback.
+- The packaged extension can run fully without the Python server in `apps/chrome-reader/server/`.
+- Server mode is optional and can be re-enabled from the popup when your laptop is too slow for on-device inference.
 - Sentence-sized synthesis keeps startup latency low and avoids generating audio far ahead on long pages.
 
 ## Regenerating Icons
